@@ -42,14 +42,22 @@ DIVIDEND_TICKERS: list[str] = [
 _YAHOO_FINANCE_URL_TEMPLATE = "https://finance.yahoo.com/quote/{ticker}"
 
 
-def get_upcoming_dividends(days_ahead: int = 3) -> list[dict[str, Any]]:
+# 날짜 범위 미지정 시 기본 스캔 일수
+_DEFAULT_DAYS_AHEAD = 3
+
+
+def get_upcoming_dividends(
+    start_date: date | None = None,
+    end_date: date | None = None,
+) -> list[dict[str, Any]]:
     """yfinance로 배당락일 임박 종목의 원시 데이터를 수집한다.
 
     DIVIDEND_TICKERS 목록의 각 종목에 대해 yfinance API를 호출하여
     배당 관련 정보를 수집한다. 필터링 없이 원시 데이터만 반환한다.
 
     Args:
-        days_ahead: 오늘로부터 며칠 이내의 배당락일을 수집할지 (기본 3일).
+        start_date: 스캔 시작일 (포함). None이면 오늘 날짜를 사용한다.
+        end_date: 스캔 종료일 (포함). None이면 start_date + 3일.
 
     Returns:
         배당 정보 dict 리스트. 각 dict에는 ticker, company_name,
@@ -58,16 +66,18 @@ def get_upcoming_dividends(days_ahead: int = 3) -> list[dict[str, Any]]:
         API 호출 실패한 종목은 제외된다.
     """
     results: list[dict[str, Any]] = []
-    today = date.today()
-    end_date = today + timedelta(days=days_ahead)
+    if start_date is None:
+        start_date = date.today()
+    if end_date is None:
+        end_date = start_date + timedelta(days=_DEFAULT_DAYS_AHEAD)
 
     logger.info(
         "배당락일 스캔 시작: %s ~ %s (%d개 종목)",
-        today, end_date, len(DIVIDEND_TICKERS),
+        start_date, end_date, len(DIVIDEND_TICKERS),
     )
 
     for ticker in DIVIDEND_TICKERS:
-        stock_data = _fetch_ticker_dividend_info(ticker, today, end_date)
+        stock_data = _fetch_ticker_dividend_info(ticker, start_date, end_date)
         if stock_data is not None:
             results.append(stock_data)
 
@@ -141,7 +151,9 @@ if __name__ == "__main__":
 
     logging.basicConfig(level=logging.INFO)
 
-    results = get_upcoming_dividends(days_ahead=7)
+    today = date.today()
+    end_7d = today + timedelta(days=7)
+    results = get_upcoming_dividends(start_date=today, end_date=end_7d)
 
     if results:
         print(f"\n=== 배당락일 임박 종목 ({len(results)}개) ===")
@@ -151,6 +163,9 @@ if __name__ == "__main__":
         print("\n배당락일 임박 종목이 없습니다. (7일 이내)")
         # 범위를 넓혀서 데이터 확인
         print("\n--- 30일 범위로 재스캔 ---")
-        results_30 = get_upcoming_dividends(days_ahead=30)
+        end_30d = today + timedelta(days=30)
+        results_30 = get_upcoming_dividends(
+            start_date=today, end_date=end_30d,
+        )
         for stock in results_30[:5]:
             print(json.dumps(stock, indent=2, ensure_ascii=False))

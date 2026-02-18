@@ -67,7 +67,11 @@ class TestGetUpcomingDividends:
         )
         mock_ticker_cls.return_value.info = mock_info
 
-        results = get_upcoming_dividends(days_ahead=3)
+        today = date.today()
+        end_date = today + timedelta(days=3)
+        results = get_upcoming_dividends(
+            start_date=today, end_date=end_date,
+        )
 
         # DIVIDEND_TICKERS의 모든 종목이 같은 mock을 반환하므로
         # 모든 종목이 결과에 포함된다
@@ -83,9 +87,25 @@ class TestGetUpcomingDividends:
         mock_info = _make_yfinance_info(ex_div_days_from_today=30)
         mock_ticker_cls.return_value.info = mock_info
 
-        results = get_upcoming_dividends(days_ahead=3)
+        today = date.today()
+        end_date = today + timedelta(days=3)
+        results = get_upcoming_dividends(
+            start_date=today, end_date=end_date,
+        )
 
         assert len(results) == 0
+
+    @patch("src.tools.yahoo_finance.yf.Ticker")
+    def test_default_dates_when_none(
+        self, mock_ticker_cls: MagicMock
+    ) -> None:
+        """start_date/end_date 미지정 시 기본값을 사용한다."""
+        mock_info = _make_yfinance_info(ex_div_days_from_today=1)
+        mock_ticker_cls.return_value.info = mock_info
+
+        results = get_upcoming_dividends()
+
+        assert len(results) == len(DIVIDEND_TICKERS)
 
     @patch("src.tools.yahoo_finance.yf.Ticker")
     def test_skips_stock_without_ex_dividend_date(
@@ -97,7 +117,7 @@ class TestGetUpcomingDividends:
             "exDividendDate": None,
         }
 
-        results = get_upcoming_dividends(days_ahead=3)
+        results = get_upcoming_dividends()
 
         assert len(results) == 0
 
@@ -106,14 +126,11 @@ class TestGetUpcomingDividends:
         self, mock_ticker_cls: MagicMock
     ) -> None:
         """yfinance API 오류 시 해당 종목을 건너뛴다."""
-        # info.get() 호출 시 OSError 발생하도록 설정
         mock_info = MagicMock()
         mock_info.get.side_effect = OSError("네트워크 오류")
         mock_ticker_cls.return_value.info = mock_info
 
-        # _fetch_ticker_dividend_info에서 예외가 catch되므로
-        # 전체 결과는 빈 리스트
-        results = get_upcoming_dividends(days_ahead=3)
+        results = get_upcoming_dividends()
 
         assert isinstance(results, list)
         assert len(results) == 0
@@ -128,7 +145,7 @@ class TestGetUpcomingDividends:
         )
         mock_ticker_cls.return_value.info = mock_info
 
-        results = get_upcoming_dividends(days_ahead=3)
+        results = get_upcoming_dividends()
 
         # yfinance가 5.78을 반환하면 그대로 5.78이어야 함
         assert results[0]["dividend_yield"] == 5.78
@@ -142,7 +159,7 @@ class TestGetUpcomingDividends:
         mock_info["dividendYield"] = None
         mock_ticker_cls.return_value.info = mock_info
 
-        results = get_upcoming_dividends(days_ahead=3)
+        results = get_upcoming_dividends()
 
         assert results[0]["dividend_yield"] == 0.0
 

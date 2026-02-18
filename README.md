@@ -45,7 +45,8 @@ daily-digest-agent/
 │   └── __init__.py
 ├── tests/                  # pytest 테스트
 ├── .github/
-│   └── workflows/          # GitHub Actions 워크플로우
+│   └── workflows/
+│       └── daily-digest.yml # GitHub Actions 스케줄러
 ├── .env.example            # 환경변수 템플릿
 ├── requirements.txt        # Python 의존성 목록
 ├── CLAUDE.md               # 프로젝트 규칙 및 코딩 컨벤션
@@ -104,46 +105,22 @@ cp .env.example .env
 5. **Slash Commands**에서 `/digest` 커맨드를 등록합니다.
 6. **Interactivity & Shortcuts**를 활성화합니다.
 
+## Slack 커맨드 사용법
+
+Bolt App 실행 후 Slack에서 다음 커맨드를 사용할 수 있습니다:
+
+| 커맨드 | 설명 |
+|--------|------|
+| `/digest now` | 배당락일 다이제스트를 즉시 실행하여 채널에 발송합니다. |
+| `/digest status` | 마지막 실행 시각, 성공 여부, 종목 수를 조회합니다. |
+
+메시지 하단의 **"다시 실행"** 버튼을 클릭하면 `/digest now`와 동일한 동작을 수행합니다.
+
 ## 실행 방법
-
-### Webhook 테스트 (단일 메시지 발송)
-
-Slack Incoming Webhook을 통해 테스트 메시지를 발송합니다.
-
-```bash
-python -m src.tools.slack_webhook
-```
-
-### Slack Service 테스트 (다이제스트 실행)
-
-비즈니스 로직 레이어에서 다이제스트를 생성하고 발송합니다.
-
-```bash
-python -m src.services.slack_service
-```
-
-### Yahoo Finance 배당 데이터 수집 (원시 데이터)
-
-yfinance를 사용하여 배당락일 임박 종목의 원시 데이터를 수집합니다.
-비즈니스 로직(필터링, 정렬) 없이 순수 API 호출만 수행합니다.
-
-```bash
-python -m src.tools.yahoo_finance
-```
-
-### 배당 서비스 테스트 (필터링 + Slack 포맷)
-
-배당 종목을 스캔하고 필터링(수익률 >= 3%, 시가총액 >= $1B)한 뒤
-Slack Block Kit 포맷으로 변환합니다.
-
-```bash
-python -m src.services.dividend_service
-```
 
 ### Daily Crew 파이프라인 (배당 스캔 -> 슬랙 발송)
 
 배당락일 스캔부터 슬랙 발송까지 전체 파이프라인을 실행합니다.
-crewAI Agent 정보도 함께 출력합니다 (LLM 미설정 시 Agent 생성 스킵).
 
 ```bash
 python -m src.crews.daily_crew
@@ -157,60 +134,75 @@ python -m src.crews.daily_crew
 python -m src.tools.slack_bolt_app
 ```
 
-실행 후 Slack에서 다음 커맨드를 사용할 수 있습니다:
+### 배당 서비스 테스트 (필터링 + Slack 포맷)
 
-- `/digest now` - 다이제스트 즉시 실행 및 발송
-- `/digest status` - 마지막 실행 상태 조회
-
-### Publisher Agent 확인
-
-crewAI Publisher Agent의 생성 및 구성을 확인합니다.
+배당 종목을 스캔하고 필터링(수익률 >= 3%, 시가총액 >= $1B)한 뒤
+Slack Block Kit 포맷으로 변환합니다. 요일별 스캔 범위도 확인합니다.
 
 ```bash
-python -m src.agents.publisher
+python -m src.services.dividend_service
 ```
 
-### US Dividend Agent 확인
+### Yahoo Finance 배당 데이터 수집 (원시 데이터)
 
-crewAI 미국 고배당주 스캐너 Agent의 생성 및 구성을 확인합니다.
+yfinance를 사용하여 배당락일 임박 종목의 원시 데이터를 수집합니다.
 
 ```bash
-python -m src.agents.us_dividend
+python -m src.tools.yahoo_finance
 ```
 
-### 스키마 검증
-
-Pydantic 모델의 생성 및 직렬화를 테스트합니다.
+### Webhook 테스트 (단일 메시지 발송)
 
 ```bash
-python -m src.schemas.slack
-python -m src.schemas.stock
+python -m src.tools.slack_webhook
 ```
 
 ### 테스트 실행
 
 ```bash
-pytest tests/
+pytest tests/ -v
 ```
 
-### 슬랙 E2E 테스트 (배당락일 다이제스트 발송)
+## GitHub Actions 자동 실행
 
-환경변수 `.env` 설정 후, 배당락일 스캔부터 슬랙 발송까지의 전체 흐름을 확인합니다.
+### 스케줄
 
-```bash
-# 1. 원시 데이터 수집 확인 (Slack 미발송)
-python -m src.tools.yahoo_finance
+매일 **KST 07:00** (UTC 22:00)에 자동 실행됩니다.
+- 월~금 (KST) = 일~목 (UTC)만 실행
+- 금/토 (KST)는 다음 거래일이 없으므로 제외
 
-# 2. 필터링 + Slack 포맷 확인 (Slack 미발송)
-python -m src.services.dividend_service
+### Secrets 등록 방법
 
-# 3. 실제 Slack 발송 (Webhook 필요)
-python -m src.crews.daily_crew
+GitHub 저장소 **Settings > Secrets and variables > Actions**에서 다음 시크릿을 등록합니다:
 
-# 4. Bolt App을 통한 슬래시 커맨드 테스트
-python -m src.tools.slack_bolt_app
-# Slack에서 /digest now 실행 → 배당 섹션이 포함된 다이제스트 확인
-```
+| Secret 이름 | 설명 |
+|-------------|------|
+| `SLACK_WEBHOOK_URL` | Slack Incoming Webhook URL |
+| `SLACK_BOT_TOKEN` | Slack Bot Token (`xoxb-`) |
+| `SLACK_APP_TOKEN` | Slack App Token (`xapp-`) |
+| `ANTHROPIC_API_KEY` | Anthropic API Key |
+
+### 수동 실행
+
+GitHub Actions 탭에서 **"Daily Digest"** 워크플로우를 선택하고
+**"Run workflow"** 버튼을 클릭하면 수동으로 실행할 수 있습니다.
+
+### 실패 알림
+
+워크플로우 실패 시 Slack 채널에 에러 알림 메시지가 자동 발송됩니다.
+GitHub Actions 로그 링크가 포함되어 있어 즉시 원인을 확인할 수 있습니다.
+
+## 배당락일 스캔 범위 로직
+
+요일별로 영업일을 고려하여 스캔 범위를 동적으로 조정합니다:
+
+| 요일 | 스캔 범위 | 이유 |
+|------|-----------|------|
+| 월~수 | today ~ today+2 | 2영업일 (주말 미포함) |
+| 목 | today ~ today+3 | 금요일 배당락 종목 포함 |
+| 금 | today ~ today+3 | 월요일 배당락 종목 포함 |
+
+핵심 원칙: **"배당락일까지 최소 영업일 2일 이상 남은 종목"을 놓치지 않는 것**
 
 ## 아키텍처 원칙
 
@@ -224,27 +216,16 @@ python -m src.tools.slack_bolt_app
 
 **Step 1: 슬랙 알림 모듈 (Webhook + Bolt 기반)** - 완료
 
-- [x] Pydantic 스키마 정의 (`src/schemas/slack.py`)
-- [x] Slack Webhook 발송 모듈 (`src/tools/slack_webhook.py`)
-- [x] Slack 비즈니스 로직 서비스 (`src/services/slack_service.py`)
-- [x] Slack Bolt 핸들러 (`src/tools/slack_bolt_app.py`)
-- [x] crewAI Publisher Agent (`src/agents/publisher.py`)
-
-**Step 2: 미국 배당락일 스캔 모듈** - 진행 중
-
-미국 주식 중 배당락일이 임박한 고배당 종목을 자동으로 스캔하여
-Slack 다이제스트에 포함하는 기능입니다.
-
-주요 기능:
-- yfinance를 통한 배당락일, 배당수익률, 시가총액 등 원시 데이터 수집
-- 배당수익률 >= 3%, 시가총액 >= $1B 기준 필터링
-- 수익률 내림차순 정렬, 최대 10개 종목 제한
-- Slack Block Kit 형식으로 포맷팅 및 발송
-- crewAI Agent(ScanDividendsTool)로 래핑하여 Crew에서 활용 가능
+**Step 2: 미국 배당락일 스캔 모듈 + Slack E2E + GitHub Actions** - 완료
 
 - [x] 배당 종목 Pydantic 스키마 (`src/schemas/stock.py`)
 - [x] Yahoo Finance 배당 데이터 수집 (`src/tools/yahoo_finance.py`)
 - [x] 배당 비즈니스 로직 서비스 (`src/services/dividend_service.py`)
+- [x] 요일별 동적 스캔 범위 (`calculate_scan_range`)
 - [x] crewAI US Dividend Agent (`src/agents/us_dividend.py`)
 - [x] SlackService 배당 섹션 통합 (`src/services/slack_service.py`)
+- [x] `/digest now` 실제 동작 연결 (종목 수 포함)
+- [x] `/digest status` 상세 상태 응답
+- [x] "다시 실행" 버튼 동작
 - [x] Daily Crew 파이프라인 (`src/crews/daily_crew.py`)
+- [x] GitHub Actions 스케줄러 (`daily-digest.yml`)

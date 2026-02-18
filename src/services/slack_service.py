@@ -95,13 +95,14 @@ class SlackService:
         호출자에게 예외가 전파되지 않는다.
 
         Returns:
-            DigestResult: 실행 결과 (성공 여부, 메시지, 타임스탬프, 소요 시간).
+            DigestResult: 실행 결과 (성공 여부, 메시지, 타임스탬프,
+                소요 시간, 종목 수).
                 실패 시에도 예외 대신 success=False인 결과를 반환한다.
         """
         start_time = time.time()
 
         try:
-            blocks = self._build_digest_blocks()
+            blocks, stock_count = self._build_digest_blocks()
             send_digest(blocks, self._config)
             elapsed = time.time() - start_time
 
@@ -109,6 +110,7 @@ class SlackService:
                 success=True,
                 message="다이제스트 발송 완료",
                 duration_sec=round(elapsed, 2),
+                stock_count=stock_count,
             )
         except (ValueError, RuntimeError, ConnectionError, OSError) as e:
             elapsed = time.time() - start_time
@@ -118,6 +120,7 @@ class SlackService:
                 success=False,
                 message=f"발송 실패: {e}",
                 duration_sec=round(elapsed, 2),
+                stock_count=0,
             )
 
         # 마지막 실행 결과를 저장하여 상태 조회에 활용
@@ -128,38 +131,54 @@ class SlackService:
         """마지막 다이제스트 실행 상태를 조회한다.
 
         Returns:
-            DigestStatus: 마지막 실행 시각, 성공 여부, 요약 문자열.
+            DigestStatus: 마지막 실행 시각, 성공 여부, 종목 수, 요약 문자열.
         """
         if self._last_result is None:
             return DigestStatus(
                 summary="아직 실행된 다이제스트가 없습니다.",
             )
 
-        return DigestStatus(
-            last_run_at=self._last_result.timestamp,
-            success=self._last_result.success,
-            summary=self._last_result.message,
+        last = self._last_result
+        time_str = last.timestamp.strftime("%Y-%m-%d %H:%M:%S")
+        status_emoji = ":white_check_mark:" if last.success else ":x:"
+        status_text = "성공" if last.success else "실패"
+
+        summary = (
+            f"{status_emoji} 마지막 실행: {time_str}\n"
+            f"  상태: {status_text} | "
+            f"종목 수: {last.stock_count}개 | "
+            f"소요: {last.duration_sec}초"
         )
 
-    def _build_digest_blocks(self) -> list[DigestBlock]:
+        return DigestStatus(
+            last_run_at=last.timestamp,
+            success=last.success,
+            stock_count=last.stock_count,
+            summary=summary,
+        )
+
+    def _build_digest_blocks(self) -> tuple[list[DigestBlock], int]:
         """다이제스트 메시지의 Block Kit 블록 목록을 생성한다.
 
         헤더, 배당락일 섹션, 다시 실행 버튼을 포함한다.
         배당 스캔이 실패하더라도 나머지 블록은 정상 생성된다.
 
         Returns:
-            list[DigestBlock]: 발송할 블록 목록
-                (header, divider, 배당 섹션, actions 블록으로 구성).
+            tuple[list[DigestBlock], int]: (발송할 블록 목록, 배당 종목 수).
+                블록은 header, divider, 배당 섹션, divider, actions로 구성.
         """
         today = datetime.now().strftime("%Y-%m-%d")
+        dividend_blocks, stock_count = self._build_dividend_section()
 
-        return [
+        blocks = [
             self._build_header_block(today),
             DigestBlock(type="divider"),
-            *self._build_dividend_section(),
+            *dividend_blocks,
             DigestBlock(type="divider"),
             self._build_rerun_action_block(),
         ]
+
+        return blocks, stock_count
 
     def _build_header_block(self, date_str: str) -> DigestBlock:
         """날짜를 포함한 헤더 블록을 생성한다.
@@ -178,7 +197,9 @@ class SlackService:
             ),
         )
 
-    def _build_dividend_section(self) -> list[DigestBlock]:
+    def _build_dividend_section(
+        self,
+    ) -> tuple[list[DigestBlock], int]:
         """배당락일 섹션 블록을 생성한다.
 
         DividendService를 통해 배당 데이터를 수집하고
@@ -187,11 +208,12 @@ class SlackService:
         전체 다이제스트 발송이 중단되지 않도록 격리한다.
 
         Returns:
-            list[DigestBlock]: 배당 관련 블록 목록.
+            tuple[list[DigestBlock], int]: (배당 관련 블록 목록, 종목 수).
         """
         try:
             scan_result = self._dividend_service.scan_dividends()
-            return self._dividend_service.format_for_slack(scan_result)
+            blocks = self._dividend_service.format_for_slack(scan_result)
+            return blocks, len(scan_result.stocks)
         except (ConnectionError, ValueError, TypeError, OSError) as e:
             # 배당 스캔 실패 시에도 전체 다이제스트 발송은 계속한다
             logger.error("배당 섹션 생성 실패 (격리 처리): %s", e)
@@ -203,7 +225,7 @@ class SlackService:
                         text=":warning: *배당 데이터 수집 실패*\n  일시적 오류가 발생했습니다.",
                     ),
                 ),
-            ]
+            ], 0
 
     def _build_rerun_action_block(self) -> DigestBlock:
         """'다시 실행' 인터랙티브 버튼 블록을 생성한다.

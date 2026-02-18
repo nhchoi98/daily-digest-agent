@@ -54,6 +54,8 @@ class DividendScanResult(BaseModel):
         stocks: 필터링된 배당 종목 리스트.
         scanned_at: 스캔 실행 시각.
         scan_range_days: 스캔 범위 (일).
+        scan_start_date: 스캔 시작일 (포함).
+        scan_end_date: 스캔 종료일 (포함).
         filters_applied: 적용된 필터 조건 정보.
     """
 
@@ -66,6 +68,14 @@ class DividendScanResult(BaseModel):
     )
     scan_range_days: int = Field(
         description="배당락일 스캔 범위 (오늘로부터 N일 이내)"
+    )
+    scan_start_date: date | None = Field(
+        default=None,
+        description="스캔 시작일 (포함, calculate_scan_range 결과)",
+    )
+    scan_end_date: date | None = Field(
+        default=None,
+        description="스캔 종료일 (포함, calculate_scan_range 결과)",
     )
     filters_applied: dict[str, Any] = Field(
         description="적용된 필터 조건 (min_yield, min_market_cap, max_stocks 등)"

@@ -83,8 +83,9 @@ def _respond_with_result(result: DigestResult, respond: Any) -> None:
     """
     if result.success:
         respond(
-            f":white_check_mark: {result.message} "
-            f"({result.duration_sec}초 소요)"
+            f":white_check_mark: 발송 완료! "
+            f"({result.stock_count}개 종목, "
+            f"소요 {result.duration_sec}초)"
         )
     else:
         respond(f":x: {result.message}")
@@ -100,7 +101,7 @@ def _handle_digest_now(service: SlackService, respond: Any) -> None:
         service: 비즈니스 로직을 위임할 SlackService.
         respond: 사용자에게 응답을 보내는 콜백.
     """
-    respond("잠시만 기다려주세요... :hourglass_flowing_sand:")
+    respond(":hourglass_flowing_sand: 다이제스트 생성 중...")
 
     try:
         result = service.run_digest()
@@ -149,7 +150,7 @@ def _register_rerun_action(app: App, service: SlackService) -> None:
         """
         # Slack은 3초 이내 ack()를 요구하므로 즉시 호출
         ack()
-        respond("다시 실행 중... :hourglass_flowing_sand:")
+        respond(":hourglass_flowing_sand: 다시 실행 중...")
 
         try:
             result = service.run_digest()

@@ -1,7 +1,7 @@
 """SlackService 비즈니스 로직 테스트 모듈.
 
 run_digest() 성공/실패, get_last_status() 검증,
-반환값이 올바른 Pydantic 모델인지 확인한다.
+stock_count 추적, 반환값이 올바른 Pydantic 모델인지 확인한다.
 """
 
 from unittest.mock import MagicMock, patch
@@ -87,6 +87,58 @@ class TestSlackServiceRunDigest:
         assert result.duration_sec >= 0
         assert isinstance(result.duration_sec, float)
 
+    @patch("src.services.slack_service.send_digest")
+    @patch("src.services.slack_service.DividendService")
+    def test_run_digest_includes_stock_count(
+        self, mock_div_cls: MagicMock, mock_send: MagicMock
+    ) -> None:
+        """실행 결과에 종목 수가 포함된다."""
+        from src.schemas.slack import DigestBlock, TextObject
+        from src.schemas.stock import DividendScanResult, DividendStock
+
+        stocks = [
+            DividendStock(
+                ticker="JNJ",
+                company_name="J&J",
+                ex_dividend_date="2026-02-20",
+                dividend_yield=5.0,
+                dividend_amount=2.0,
+                market_cap=500_000_000_000,
+                yahoo_finance_url="https://finance.yahoo.com/quote/JNJ",
+            ),
+        ]
+        mock_scan_result = DividendScanResult(
+            stocks=stocks,
+            scan_range_days=2,
+            filters_applied={},
+        )
+        mock_div_instance = mock_div_cls.return_value
+        mock_div_instance.scan_dividends.return_value = mock_scan_result
+        mock_div_instance.format_for_slack.return_value = [
+            DigestBlock(
+                type="section",
+                text=TextObject(type="mrkdwn", text="테스트"),
+            ),
+        ]
+        mock_send.return_value = True
+
+        service = SlackService(_make_config())
+        result = service.run_digest()
+
+        assert result.stock_count == 1
+
+    @patch("src.services.slack_service.send_digest")
+    def test_run_digest_failure_stock_count_zero(
+        self, mock_send: MagicMock
+    ) -> None:
+        """발송 실패 시 stock_count가 0이다."""
+        mock_send.side_effect = RuntimeError("실패")
+
+        service = SlackService(_make_config())
+        result = service.run_digest()
+
+        assert result.stock_count == 0
+
 
 class TestSlackServiceGetLastStatus:
     """SlackService.get_last_status() 테스트."""
@@ -99,6 +151,7 @@ class TestSlackServiceGetLastStatus:
         assert isinstance(status, DigestStatus)
         assert status.last_run_at is None
         assert status.success is None
+        assert status.stock_count is None
         assert "아직 실행된" in status.summary
 
     @patch("src.services.slack_service.send_digest")
@@ -115,7 +168,8 @@ class TestSlackServiceGetLastStatus:
         assert isinstance(status, DigestStatus)
         assert status.success is True
         assert status.last_run_at is not None
-        assert status.summary == "다이제스트 발송 완료"
+        assert status.stock_count is not None
+        assert "성공" in status.summary
 
     @patch("src.services.slack_service.send_digest")
     def test_after_failed_run(
@@ -129,7 +183,20 @@ class TestSlackServiceGetLastStatus:
         status = service.get_last_status()
 
         assert status.success is False
-        assert "발송 실패" in status.summary
+        assert "실패" in status.summary
+
+    @patch("src.services.slack_service.send_digest")
+    def test_status_includes_stock_count(
+        self, mock_send: MagicMock
+    ) -> None:
+        """상태에 종목 수가 포함된다."""
+        mock_send.return_value = True
+
+        service = SlackService(_make_config())
+        service.run_digest()
+        status = service.get_last_status()
+
+        assert "종목 수:" in status.summary
 
 
 class TestSlackServiceDividendIntegration:
@@ -183,6 +250,7 @@ class TestSlackServiceDividendIntegration:
 
         # 배당 실패에도 전체 다이제스트는 성공해야 한다
         assert result.success is True
+        assert result.stock_count == 0
 
     @patch("src.services.slack_service.send_digest")
     @patch("src.services.slack_service.DividendService")
@@ -208,7 +276,7 @@ class TestSlackServiceDividendIntegration:
         ]
 
         service = SlackService(_make_config())
-        blocks = service._build_digest_blocks()
+        blocks, stock_count = service._build_digest_blocks()
 
         # header, divider, 배당 섹션, divider, actions
         block_types = [b.type for b in blocks]
@@ -216,6 +284,7 @@ class TestSlackServiceDividendIntegration:
         assert block_types[1] == "divider"
         assert "section" in block_types  # 배당 섹션
         assert block_types[-1] == "actions"
+        assert isinstance(stock_count, int)
 
 
 class TestFormatSection:

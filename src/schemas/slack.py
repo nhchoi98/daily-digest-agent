@@ -147,6 +147,7 @@ class DigestResult(BaseModel):
         message: 결과 메시지.
         timestamp: 실행 완료 시각.
         duration_sec: 실행 소요 시간 (초).
+        stock_count: 다이제스트에 포함된 배당 종목 수.
     """
 
     success: bool = Field(description="다이제스트 실행 성공 여부")
@@ -160,6 +161,10 @@ class DigestResult(BaseModel):
     duration_sec: float = Field(
         description="실행 소요 시간 (초 단위, 소수점 포함)"
     )
+    stock_count: int = Field(
+        default=0,
+        description="다이제스트에 포함된 배당 종목 수",
+    )
 
 
 class DigestStatus(BaseModel):
@@ -171,6 +176,7 @@ class DigestStatus(BaseModel):
     Attributes:
         last_run_at: 마지막 실행 시각.
         success: 마지막 실행 성공 여부.
+        stock_count: 마지막 실행에서 포함된 종목 수.
         summary: 상태 요약 문자열.
     """
 
@@ -181,6 +187,10 @@ class DigestStatus(BaseModel):
     success: bool | None = Field(
         default=None,
         description="마지막 실행 성공 여부 (실행 이력이 없으면 None)",
+    )
+    stock_count: int | None = Field(
+        default=None,
+        description="마지막 실행에서 포함된 배당 종목 수 (실행 이력이 없으면 None)",
     )
     summary: str = Field(
         description="사용자에게 표시할 상태 요약 문자열"

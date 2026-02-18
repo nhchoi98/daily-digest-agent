@@ -1,7 +1,7 @@
 """DividendService 비즈니스 로직 테스트 모듈.
 
-배당 스캔, 필터링, 정렬, Slack 포맷 변환 등
-DividendService의 핵심 로직을 검증한다.
+배당 스캔, 필터링, 정렬, Slack 포맷 변환,
+요일별 스캔 범위 계산 등 DividendService의 핵심 로직을 검증한다.
 """
 
 from datetime import date
@@ -72,6 +72,67 @@ def _make_stock(
     )
 
 
+class TestCalculateScanRange:
+    """DividendService.calculate_scan_range() 테스트."""
+
+    def test_monday_range(self) -> None:
+        """월요일: today + 2일 (수요일까지)."""
+        service = DividendService()
+        # 2026-02-16 = Monday
+        start, end = service.calculate_scan_range(date(2026, 2, 16))
+        assert start == date(2026, 2, 16)
+        assert end == date(2026, 2, 18)
+        assert (end - start).days == 2
+
+    def test_tuesday_range(self) -> None:
+        """화요일: today + 2일 (목요일까지)."""
+        service = DividendService()
+        start, end = service.calculate_scan_range(date(2026, 2, 17))
+        assert start == date(2026, 2, 17)
+        assert end == date(2026, 2, 19)
+        assert (end - start).days == 2
+
+    def test_wednesday_range(self) -> None:
+        """수요일: today + 2일 (금요일까지)."""
+        service = DividendService()
+        start, end = service.calculate_scan_range(date(2026, 2, 18))
+        assert start == date(2026, 2, 18)
+        assert end == date(2026, 2, 20)
+        assert (end - start).days == 2
+
+    def test_thursday_range_includes_friday(self) -> None:
+        """목요일: today + 3일 (일요일까지, 금요일 배당락 포함)."""
+        service = DividendService()
+        start, end = service.calculate_scan_range(date(2026, 2, 19))
+        assert start == date(2026, 2, 19)
+        assert end == date(2026, 2, 22)
+        assert (end - start).days == 3
+
+    def test_friday_range_includes_monday(self) -> None:
+        """금요일: today + 3일 (월요일까지, 월요일 배당락 포함)."""
+        service = DividendService()
+        start, end = service.calculate_scan_range(date(2026, 2, 20))
+        assert start == date(2026, 2, 20)
+        assert end == date(2026, 2, 23)
+        assert (end - start).days == 3
+
+    def test_saturday_range(self) -> None:
+        """토요일: today + 4일 (수요일까지)."""
+        service = DividendService()
+        start, end = service.calculate_scan_range(date(2026, 2, 21))
+        assert start == date(2026, 2, 21)
+        assert end == date(2026, 2, 25)
+        assert (end - start).days == 4
+
+    def test_sunday_range(self) -> None:
+        """일요일: today + 3일 (수요일까지)."""
+        service = DividendService()
+        start, end = service.calculate_scan_range(date(2026, 2, 22))
+        assert start == date(2026, 2, 22)
+        assert end == date(2026, 2, 25)
+        assert (end - start).days == 3
+
+
 class TestScanDividends:
     """DividendService.scan_dividends() 테스트."""
 
@@ -88,7 +149,36 @@ class TestScanDividends:
         result = service.scan_dividends()
 
         assert isinstance(result, DividendScanResult)
-        assert result.scan_range_days == DEFAULT_SCAN_DAYS
+        assert result.scan_start_date is not None
+        assert result.scan_end_date is not None
+
+    @patch("src.services.dividend_service.get_upcoming_dividends")
+    def test_scan_result_includes_date_range(
+        self, mock_get: MagicMock
+    ) -> None:
+        """스캔 결과에 시작일/종료일이 포함된다."""
+        mock_get.return_value = []
+
+        service = DividendService()
+        result = service.scan_dividends()
+
+        assert result.scan_start_date is not None
+        assert result.scan_end_date is not None
+        assert result.scan_range_days == (
+            result.scan_end_date - result.scan_start_date
+        ).days
+
+    @patch("src.services.dividend_service.get_upcoming_dividends")
+    def test_override_scan_days(
+        self, mock_get: MagicMock
+    ) -> None:
+        """scan_days 오버라이드 시 고정 범위를 사용한다."""
+        mock_get.return_value = []
+
+        service = DividendService(scan_days=7)
+        result = service.scan_dividends()
+
+        assert result.scan_range_days == 7
 
     @patch("src.services.dividend_service.get_upcoming_dividends")
     def test_filters_by_yield(
@@ -146,7 +236,6 @@ class TestScanDividends:
         self, mock_get: MagicMock
     ) -> None:
         """최대 MAX_STOCKS개까지만 반환한다."""
-        # MAX_STOCKS + 5개 종목 생성
         mock_get.return_value = [
             _make_raw_stock(f"T{i}", yield_pct=float(20 - i))
             for i in range(MAX_STOCKS + 5)
@@ -196,10 +285,20 @@ class TestScanDividends:
         assert result.filters_applied["min_market_cap_usd"] == MIN_MARKET_CAP_USD
         assert result.filters_applied["max_stocks"] == MAX_STOCKS
 
-    def test_custom_scan_days(self) -> None:
-        """사용자 지정 스캔 범위로 서비스를 생성한다."""
-        service = DividendService(scan_days=7)
-        assert service._scan_days == 7
+    @patch("src.services.dividend_service.get_upcoming_dividends")
+    def test_passes_date_range_to_yahoo(
+        self, mock_get: MagicMock
+    ) -> None:
+        """yahoo_finance에 날짜 범위를 전달한다."""
+        mock_get.return_value = []
+
+        service = DividendService()
+        service.scan_dividends()
+
+        mock_get.assert_called_once()
+        call_kwargs = mock_get.call_args.kwargs
+        assert "start_date" in call_kwargs
+        assert "end_date" in call_kwargs
 
 
 class TestFormatForSlack:
@@ -229,6 +328,8 @@ class TestFormatForSlack:
         result = DividendScanResult(
             stocks=[],
             scan_range_days=3,
+            scan_start_date=date(2026, 2, 18),
+            scan_end_date=date(2026, 2, 20),
             filters_applied={},
         )
 
@@ -237,6 +338,22 @@ class TestFormatForSlack:
         assert len(blocks) == 1
         assert blocks[0].type == "section"
         assert "없습니다" in blocks[0].text.text
+
+    def test_empty_notice_shows_date_range(self) -> None:
+        """빈 결과 안내에 스캔 날짜 범위가 표시된다."""
+        service = DividendService()
+        result = DividendScanResult(
+            stocks=[],
+            scan_range_days=2,
+            scan_start_date=date(2026, 2, 18),
+            scan_end_date=date(2026, 2, 20),
+            filters_applied={},
+        )
+
+        blocks = service.format_for_slack(result)
+
+        assert "2026-02-18" in blocks[0].text.text
+        assert "2026-02-20" in blocks[0].text.text
 
     def test_format_includes_yield_info(self) -> None:
         """포맷에 배당수익률 정보가 포함된다."""

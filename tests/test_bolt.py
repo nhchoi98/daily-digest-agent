@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from pydantic import SecretStr
 
-from src.schemas.slack import SlackConfig
+from src.schemas.slack import DigestResult, SlackConfig
 from src.services.slack_service import SlackService
 from src.tools.slack_bolt_app import (
     _handle_digest_now,
@@ -47,10 +47,25 @@ class TestDigestNowHandler:
         service = SlackService(config)
         _handle_digest_now(service, respond)
 
-        # 첫 번째 호출: "잠시만 기다려주세요..."
-        assert "잠시만" in respond.call_args_list[0][0][0]
-        # 두 번째 호출: 성공 메시지
-        assert ":white_check_mark:" in respond.call_args_list[1][0][0]
+        # 첫 번째 호출: "다이제스트 생성 중..."
+        assert "다이제스트 생성 중" in respond.call_args_list[0][0][0]
+        # 두 번째 호출: 발송 완료
+        assert "발송 완료" in respond.call_args_list[1][0][0]
+
+    @patch("src.services.slack_service.send_digest")
+    def test_digest_now_includes_stock_count(
+        self, mock_send: MagicMock
+    ) -> None:
+        """성공 응답에 종목 수가 포함된다."""
+        mock_send.return_value = True
+        respond = MagicMock()
+
+        config = _make_config()
+        service = SlackService(config)
+        _handle_digest_now(service, respond)
+
+        success_msg = respond.call_args_list[1][0][0]
+        assert "개 종목" in success_msg
 
     @patch("src.services.slack_service.send_digest")
     def test_digest_now_failure(self, mock_send: MagicMock) -> None:
@@ -82,7 +97,7 @@ class TestDigestStatusHandler:
 
     @patch("src.services.slack_service.send_digest")
     def test_status_after_run(self, mock_send: MagicMock) -> None:
-        """실행 후 상태 조회 시 결과 메시지를 반환한다."""
+        """실행 후 상태 조회 시 상세 결과를 반환한다."""
         mock_send.return_value = True
         respond = MagicMock()
 
@@ -92,33 +107,34 @@ class TestDigestStatusHandler:
         _handle_digest_status(service, respond)
 
         respond.assert_called_once()
-        assert "다이제스트 발송 완료" in respond.call_args[0][0]
+        status_msg = respond.call_args[0][0]
+        assert "마지막 실행:" in status_msg
+        assert "종목 수:" in status_msg
 
 
 class TestRespondWithResult:
     """_respond_with_result 헬퍼 함수 테스트."""
 
     def test_success_response(self) -> None:
-        """성공 결과에 대해 체크마크 이모지가 포함된 응답을 보낸다."""
-        from src.schemas.slack import DigestResult
-
+        """성공 결과에 대해 체크마크 이모지와 종목 수가 포함된 응답을 보낸다."""
         result = DigestResult(
             success=True,
             message="완료",
             duration_sec=1.0,
+            stock_count=3,
         )
         respond = MagicMock()
 
         _respond_with_result(result, respond)
 
         respond.assert_called_once()
-        assert ":white_check_mark:" in respond.call_args[0][0]
-        assert "1.0초" in respond.call_args[0][0]
+        msg = respond.call_args[0][0]
+        assert ":white_check_mark:" in msg
+        assert "3개 종목" in msg
+        assert "1.0초" in msg
 
     def test_failure_response(self) -> None:
         """실패 결과에 대해 X 이모지가 포함된 응답을 보낸다."""
-        from src.schemas.slack import DigestResult
-
         result = DigestResult(
             success=False,
             message="오류 발생",
@@ -130,3 +146,18 @@ class TestRespondWithResult:
 
         respond.assert_called_once()
         assert ":x:" in respond.call_args[0][0]
+
+    def test_success_with_zero_stocks(self) -> None:
+        """성공이지만 종목 0개일 때도 정상 응답한다."""
+        result = DigestResult(
+            success=True,
+            message="완료",
+            duration_sec=0.5,
+            stock_count=0,
+        )
+        respond = MagicMock()
+
+        _respond_with_result(result, respond)
+
+        msg = respond.call_args[0][0]
+        assert "0개 종목" in msg

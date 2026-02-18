@@ -1,0 +1,70 @@
+# Daily Digest - 매일 아침 배당락일 스캔 + Slack 발송 자동화
+#
+# 스케줄: UTC 22:00, 일~목 = KST 07:00, 월~금
+# (금토는 다음 거래일이 없으므로 제외)
+#
+# 수동 실행: GitHub Actions 탭에서 "Run workflow" 버튼으로 실행 가능
+name: Daily Digest
+
+on:
+  schedule:
+    # UTC 22:00 일~목 = KST 07:00 월~금 (0=일, 4=목)
+    - cron: '0 22 * * 0-4'
+  workflow_dispatch: # 수동 트리거
+
+# 동시 실행 방지 (같은 워크플로우가 이미 실행 중이면 대기)
+concurrency:
+  group: daily-digest
+  cancel-in-progress: false
+
+jobs:
+  send-digest:
+    name: Scan Dividends & Send Slack Digest
+    runs-on: ubuntu-latest
+    timeout-minutes: 5  # 무한 대기 방지
+
+    steps:
+      # 1. 소스코드 체크아웃
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Python 3.12 설정
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      # 3. 의존성 설치
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # 4. 배당 스캔 → Slack 발송 파이프라인 실행
+      - name: Run Daily Digest pipeline
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_APP_TOKEN: ${{ secrets.SLACK_APP_TOKEN }}
+          SLACK_CHANNEL: '#daily-digest'
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python -m src.crews.daily_crew
+
+      # 5. 실패 시 Slack 에러 알림 발송
+      - name: Notify Slack on failure
+        if: failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          curl -s -X POST "$SLACK_WEBHOOK_URL" \
+            -H 'Content-Type: application/json' \
+            -d '{
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": ":rotating_light: *Daily Digest 실패*\nGitHub Actions 워크플로우가 실패했습니다.\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|로그 확인>"
+                  }
+                }
+              ]
+            }'
