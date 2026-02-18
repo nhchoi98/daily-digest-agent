@@ -12,6 +12,7 @@ Slack Bolt SDK (Socket Mode)를 통해 슬래시 커맨드와 인터랙티브 �
 | 웹 프레임워크 | FastAPI |
 | AI 에이전트 | crewAI |
 | Slack 연동 | slack-sdk (Webhook), slack-bolt (Socket Mode) |
+| 주식 데이터 | yfinance (Yahoo Finance API) |
 | 데이터 검증 | Pydantic v2, pydantic-settings |
 | 스케줄러 | GitHub Actions |
 | 환경변수 관리 | python-dotenv |
@@ -26,15 +27,20 @@ daily-digest-agent/
 │       └── __init__.py
 ├── src/
 │   ├── agents/             # crewAI 에이전트 정의
-│   │   └── publisher.py    #   - 다이제스트 발송 퍼블리셔 Agent
+│   │   ├── publisher.py    #   - 다이제스트 발송 퍼블리셔 Agent
+│   │   └── us_dividend.py  #   - 미국 고배당주 스캐너 Agent
 │   ├── services/           # 비즈니스 로직
-│   │   └── slack_service.py#   - 다이제스트 실행 및 상태 관리
+│   │   ├── slack_service.py#   - 다이제스트 실행 및 상태 관리
+│   │   └── dividend_service.py# - 배당 스캔, 필터링, Slack 포맷 변환
 │   ├── schemas/            # Pydantic 모델 (입출력 타입 정의)
-│   │   └── slack.py        #   - Block Kit, 실행 결과, 환경변수 스키마
+│   │   ├── slack.py        #   - Block Kit, 실행 결과, 환경변수 스키마
+│   │   └── stock.py        #   - 배당 종목 정보, 스캔 결과 스키마
 │   ├── tools/              # 외부 API 래퍼 (순수 API 호출만 담당)
 │   │   ├── slack_webhook.py#   - Incoming Webhook 메시지 발송
-│   │   └── slack_bolt_app.py#  - Bolt 슬래시 커맨드 및 인터랙티브 핸들러
+│   │   ├── slack_bolt_app.py#  - Bolt 슬래시 커맨드 및 인터랙티브 핸들러
+│   │   └── yahoo_finance.py#   - Yahoo Finance 배당 데이터 수집
 │   ├── crews/              # crewAI Crew 조합 및 실행
+│   │   └── daily_crew.py   #   - 배당 스캔 → 슬랙 발송 파이프라인
 │   ├── config/             # agents.yaml, tasks.yaml
 │   └── __init__.py
 ├── tests/                  # pytest 테스트
@@ -116,6 +122,33 @@ python -m src.tools.slack_webhook
 python -m src.services.slack_service
 ```
 
+### Yahoo Finance 배당 데이터 수집 (원시 데이터)
+
+yfinance를 사용하여 배당락일 임박 종목의 원시 데이터를 수집합니다.
+비즈니스 로직(필터링, 정렬) 없이 순수 API 호출만 수행합니다.
+
+```bash
+python -m src.tools.yahoo_finance
+```
+
+### 배당 서비스 테스트 (필터링 + Slack 포맷)
+
+배당 종목을 스캔하고 필터링(수익률 >= 3%, 시가총액 >= $1B)한 뒤
+Slack Block Kit 포맷으로 변환합니다.
+
+```bash
+python -m src.services.dividend_service
+```
+
+### Daily Crew 파이프라인 (배당 스캔 -> 슬랙 발송)
+
+배당락일 스캔부터 슬랙 발송까지 전체 파이프라인을 실행합니다.
+crewAI Agent 정보도 함께 출력합니다 (LLM 미설정 시 Agent 생성 스킵).
+
+```bash
+python -m src.crews.daily_crew
+```
+
 ### Bolt App 실행 (Socket Mode)
 
 슬래시 커맨드 `/digest now`, `/digest status` 및 인터랙티브 버튼을 지원하는 Bolt App을 시작합니다.
@@ -137,18 +170,46 @@ crewAI Publisher Agent의 생성 및 구성을 확인합니다.
 python -m src.agents.publisher
 ```
 
+### US Dividend Agent 확인
+
+crewAI 미국 고배당주 스캐너 Agent의 생성 및 구성을 확인합니다.
+
+```bash
+python -m src.agents.us_dividend
+```
+
 ### 스키마 검증
 
 Pydantic 모델의 생성 및 직렬화를 테스트합니다.
 
 ```bash
 python -m src.schemas.slack
+python -m src.schemas.stock
 ```
 
 ### 테스트 실행
 
 ```bash
 pytest tests/
+```
+
+### 슬랙 E2E 테스트 (배당락일 다이제스트 발송)
+
+환경변수 `.env` 설정 후, 배당락일 스캔부터 슬랙 발송까지의 전체 흐름을 확인합니다.
+
+```bash
+# 1. 원시 데이터 수집 확인 (Slack 미발송)
+python -m src.tools.yahoo_finance
+
+# 2. 필터링 + Slack 포맷 확인 (Slack 미발송)
+python -m src.services.dividend_service
+
+# 3. 실제 Slack 발송 (Webhook 필요)
+python -m src.crews.daily_crew
+
+# 4. Bolt App을 통한 슬래시 커맨드 테스트
+python -m src.tools.slack_bolt_app
+# Slack에서 /digest now 실행 → 배당 섹션이 포함된 다이제스트 확인
 ```
 
 ## 아키텍처 원칙
@@ -161,10 +222,29 @@ pytest tests/
 
 ## 현재 개발 단계
 
-**Step 1: 슬랙 알림 모듈 (Webhook + Bolt 기반)** - 진행 중
+**Step 1: 슬랙 알림 모듈 (Webhook + Bolt 기반)** - 완료
 
 - [x] Pydantic 스키마 정의 (`src/schemas/slack.py`)
 - [x] Slack Webhook 발송 모듈 (`src/tools/slack_webhook.py`)
 - [x] Slack 비즈니스 로직 서비스 (`src/services/slack_service.py`)
 - [x] Slack Bolt 핸들러 (`src/tools/slack_bolt_app.py`)
 - [x] crewAI Publisher Agent (`src/agents/publisher.py`)
+
+**Step 2: 미국 배당락일 스캔 모듈** - 진행 중
+
+미국 주식 중 배당락일이 임박한 고배당 종목을 자동으로 스캔하여
+Slack 다이제스트에 포함하는 기능입니다.
+
+주요 기능:
+- yfinance를 통한 배당락일, 배당수익률, 시가총액 등 원시 데이터 수집
+- 배당수익률 >= 3%, 시가총액 >= $1B 기준 필터링
+- 수익률 내림차순 정렬, 최대 10개 종목 제한
+- Slack Block Kit 형식으로 포맷팅 및 발송
+- crewAI Agent(ScanDividendsTool)로 래핑하여 Crew에서 활용 가능
+
+- [x] 배당 종목 Pydantic 스키마 (`src/schemas/stock.py`)
+- [x] Yahoo Finance 배당 데이터 수집 (`src/tools/yahoo_finance.py`)
+- [x] 배당 비즈니스 로직 서비스 (`src/services/dividend_service.py`)
+- [x] crewAI US Dividend Agent (`src/agents/us_dividend.py`)
+- [x] SlackService 배당 섹션 통합 (`src/services/slack_service.py`)
+- [x] Daily Crew 파이프라인 (`src/crews/daily_crew.py`)

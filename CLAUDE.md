@@ -43,7 +43,7 @@ Slack Bolt SDK (Socket Mode)로 슬래시 커맨드, 인터랙티브 버튼도 �
 - sudo 사용 금지
 
 ## 현재 개발 단계
-Step 1: 슬랙 알림 모듈 (Webhook + Bolt 기반)
+Step 2: 미국주식 배당락일 모듈 + Slack E2E 연동
 
 ## 환경변수
 - SLACK_WEBHOOK_URL, SLACK_BOT_TOKEN, SLACK_APP_TOKEN

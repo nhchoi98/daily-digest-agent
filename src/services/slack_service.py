@@ -17,6 +17,7 @@ from src.schemas.slack import (
     SlackConfig,
     TextObject,
 )
+from src.services.dividend_service import DividendService
 from src.tools.slack_webhook import send_digest
 
 logger = logging.getLogger(__name__)
@@ -64,11 +65,13 @@ class SlackService:
 
     Bolt 핸들러와 crewAI Agent 모두 이 서비스를 통해
     다이제스트를 실행하고 상태를 조회한다.
+    DividendService를 통해 배당 데이터를 수집하고,
     tools 레이어의 순수 API 호출을 오케스트레이션한다.
 
     Attributes:
         _config: Slack 연동 설정.
         _last_result: 마지막 실행 결과 (없으면 None).
+        _dividend_service: 배당 데이터 수집 서비스.
     """
 
     def __init__(self, config: SlackConfig) -> None:
@@ -79,12 +82,14 @@ class SlackService:
         """
         self._config = config
         self._last_result: DigestResult | None = None
+        self._dividend_service = DividendService()
 
     def run_digest(self) -> DigestResult:
         """다이제스트를 생성하고 Slack으로 발송한다.
 
-        테스트용 정적 블록을 생성하여 Webhook으로 발송한다.
-        향후 crewAI Crew 실행 결과로 교체될 예정.
+        배당 데이터를 수집하여 Block Kit 메시지로 구성한 뒤
+        Webhook으로 발송한다. 배당 스캔 실패 시에도
+        나머지 콘텐츠는 정상 발송된다 (격리 처리).
 
         내부에서 예외를 catch하여 DigestResult로 래핑하므로
         호출자에게 예외가 전파되지 않는다.
@@ -105,7 +110,7 @@ class SlackService:
                 message="다이제스트 발송 완료",
                 duration_sec=round(elapsed, 2),
             )
-        except (ValueError, RuntimeError, ConnectionError) as e:
+        except (ValueError, RuntimeError, ConnectionError, OSError) as e:
             elapsed = time.time() - start_time
             logger.error("다이제스트 발송 실패: %s", e)
 
@@ -139,19 +144,19 @@ class SlackService:
     def _build_digest_blocks(self) -> list[DigestBlock]:
         """다이제스트 메시지의 Block Kit 블록 목록을 생성한다.
 
-        현재 Step 1에서는 Webhook 연동 검증을 위해 정적 테스트 블록을 반환한다.
-        Step 2 이후 crewAI Crew가 수집한 실시간 데이터로 교체될 예정.
+        헤더, 배당락일 섹션, 다시 실행 버튼을 포함한다.
+        배당 스캔이 실패하더라도 나머지 블록은 정상 생성된다.
 
         Returns:
             list[DigestBlock]: 발송할 블록 목록
-                (header, divider, section, actions 블록으로 구성).
+                (header, divider, 배당 섹션, actions 블록으로 구성).
         """
         today = datetime.now().strftime("%Y-%m-%d")
 
         return [
             self._build_header_block(today),
             DigestBlock(type="divider"),
-            *self._build_content_sections(),
+            *self._build_dividend_section(),
             DigestBlock(type="divider"),
             self._build_rerun_action_block(),
         ]
@@ -173,45 +178,32 @@ class SlackService:
             ),
         )
 
-    def _build_content_sections(self) -> list[DigestBlock]:
-        """콘텐츠 섹션 블록 목록을 생성한다.
+    def _build_dividend_section(self) -> list[DigestBlock]:
+        """배당락일 섹션 블록을 생성한다.
 
-        Step 1에서는 테스트용 정적 데이터를 반환한다.
-        Step 2 이후 crewAI Crew 실행 결과로 교체될 예정.
+        DividendService를 통해 배당 데이터를 수집하고
+        Slack 포맷으로 변환한다.
+        스캔 실패 시에도 에러 안내 블록을 반환하여
+        전체 다이제스트 발송이 중단되지 않도록 격리한다.
 
         Returns:
-            list[DigestBlock]: 콘텐츠 section 블록 목록.
+            list[DigestBlock]: 배당 관련 블록 목록.
         """
-        return [
-            format_section(
-                title="국내 주식",
-                items=[
-                    "KOSPI: 2,650.30 (+0.5%)",
-                    "KOSDAQ: 870.15 (+0.3%)",
-                    "삼성전자: 72,000원 (+1.2%)",
-                ],
-                emoji=":chart_with_upwards_trend:",
-            ),
-            format_section(
-                title="미국 주식",
-                items=[
-                    "S&P 500: 5,200.50 (+0.8%)",
-                    "NASDAQ: 16,400.20 (+1.1%)",
-                    "AAPL: $185.50 (+0.6%)",
-                ],
-                emoji=":us:",
-            ),
-            DigestBlock(type="divider"),
-            format_section(
-                title="프로그래밍 트렌드",
-                items=[
-                    "Python 3.13 새로운 기능 발표",
-                    "Rust 생태계 확장 소식",
-                    "AI 코딩 도구 업데이트",
-                ],
-                emoji=":computer:",
-            ),
-        ]
+        try:
+            scan_result = self._dividend_service.scan_dividends()
+            return self._dividend_service.format_for_slack(scan_result)
+        except (ConnectionError, ValueError, TypeError, OSError) as e:
+            # 배당 스캔 실패 시에도 전체 다이제스트 발송은 계속한다
+            logger.error("배당 섹션 생성 실패 (격리 처리): %s", e)
+            return [
+                DigestBlock(
+                    type="section",
+                    text=TextObject(
+                        type="mrkdwn",
+                        text=":warning: *배당 데이터 수집 실패*\n  일시적 오류가 발생했습니다.",
+                    ),
+                ),
+            ]
 
     def _build_rerun_action_block(self) -> DigestBlock:
         """'다시 실행' 인터랙티브 버튼 블록을 생성한다.
