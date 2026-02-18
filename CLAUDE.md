@@ -43,7 +43,7 @@ Slack Bolt SDK (Socket Mode)로 슬래시 커맨드, 인터랙티브 버튼도 �
 - sudo 사용 금지
 
 ## 현재 개발 단계
-Step 2: 미국주식 배당락일 모듈 + Slack E2E 연동
+Step 2.5: 배당 스캐너 고도화 (기술적 지표 + 세후 수익성 분석)
 
 ## 환경변수
 - SLACK_WEBHOOK_URL, SLACK_BOT_TOKEN, SLACK_APP_TOKEN

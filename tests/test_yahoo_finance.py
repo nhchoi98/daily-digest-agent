@@ -51,6 +51,8 @@ def _make_yfinance_info(
         "dividendYield": dividend_yield,
         "dividendRate": 2.0,
         "marketCap": market_cap,
+        "currentPrice": 150.0,
+        "lastDividendValue": 0.50,
     }
 
 
@@ -183,6 +185,8 @@ class TestFetchTickerDividendInfo:
         assert result["ticker"] == "JNJ"
         assert "ex_dividend_date" in result
         assert "dividend_yield" in result
+        assert "current_price" in result
+        assert "last_dividend_value" in result
         assert "yahoo_finance_url" in result
         assert "JNJ" in result["yahoo_finance_url"]
 
