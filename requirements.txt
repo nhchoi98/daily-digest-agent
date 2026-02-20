@@ -10,11 +10,9 @@ attrs==25.4.0
 backoff==2.2.1
 bcrypt==5.0.0
 beautifulsoup4==4.13.5
-build==1.4.0
 cachetools==7.0.1
 certifi==2026.1.4
 cffi==2.0.0
-cfgv==3.5.0
 charset-normalizer==3.4.4
 chromadb==1.1.1
 click==8.1.8
@@ -26,7 +24,6 @@ decorator==5.2.1
 defusedxml==0.7.1
 deprecation==2.1.0
 diskcache==5.6.3
-distlib==0.4.0
 distro==1.9.0
 docker==7.1.0
 docstring_parser==0.17.0
@@ -47,7 +44,6 @@ httptools==0.7.1
 httpx==0.28.1
 httpx-sse==0.4.3
 huggingface_hub==0.36.2
-identify==2.6.16
 idna==3.11
 importlib_metadata==8.7.1
 importlib_resources==6.5.2
@@ -70,10 +66,9 @@ mmh3==5.2.0
 mpmath==1.3.0
 multidict==6.7.1
 multitasking==0.0.12
-nodeenv==1.10.0
 numpy==2.4.2
 oauthlib==3.3.1
-onnxruntime==1.24.1
+onnxruntime==1.23.2
 openai==1.83.0
 openpyxl==3.1.5
 opentelemetry-api==1.34.1
@@ -94,7 +89,6 @@ pillow==12.1.1
 platformdirs==4.9.2
 portalocker==2.7.0
 posthog==5.4.0
-pre_commit==4.5.1
 propcache==0.4.1
 protobuf==5.29.6
 py==1.11.0
@@ -110,7 +104,6 @@ pylance==0.9.18
 PyMuPDF==1.26.7
 pypdfium2==5.4.0
 PyPika==0.51.1
-pyproject_hooks==1.2.0
 python-dateutil==2.9.0.post0
 python-docx==1.2.0
 python-dotenv==1.1.1
@@ -146,10 +139,8 @@ typer==0.23.1
 typing-inspection==0.4.2
 typing_extensions==4.15.0
 urllib3==2.6.3
-uv==0.9.30
 uvicorn==0.41.0
 uvloop==0.22.1
-virtualenv==20.38.0
 watchfiles==1.1.1
 websocket-client==1.9.0
 websockets==16.0

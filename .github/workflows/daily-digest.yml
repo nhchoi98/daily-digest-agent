@@ -1,6 +1,6 @@
 # Daily Digest - 매일 아침 배당락일 스캔 + Slack 발송 자동화
 #
-# 스케줄: UTC 22:00, 일~목 = KST 07:00, 월~금
+# 스케줄: UTC 22:00, 일~금 = KST 07:00, 월~토
 # (금토는 다음 거래일이 없으므로 제외)
 #
 # 수동 실행: GitHub Actions 탭에서 "Run workflow" 버튼으로 실행 가능
@@ -9,7 +9,7 @@ name: Daily Digest
 on:
   schedule:
     # UTC 22:00 일~목 = KST 07:00 월~금 (0=일, 4=목)
-    - cron: '0 22 * * 0-4'
+    - cron: "0 22 * * 0-6"
   workflow_dispatch: # 수동 트리거
 
 # 동시 실행 방지 (같은 워크플로우가 이미 실행 중이면 대기)
@@ -21,19 +21,19 @@ jobs:
   send-digest:
     name: Scan Dividends & Send Slack Digest
     runs-on: ubuntu-latest
-    timeout-minutes: 5  # 무한 대기 방지
+    timeout-minutes: 5 # 무한 대기 방지
 
     steps:
       # 1. 소스코드 체크아웃
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. Python 3.12 설정
-      - name: Setup Python 3.12
+      # 2. Python 3.11 설정
+      - name: Setup Python 3.11
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
-          cache: 'pip'
+          python-version: "3.11"
+          cache: "pip"
 
       # 3. 의존성 설치
       - name: Install dependencies
@@ -45,7 +45,7 @@ jobs:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_APP_TOKEN: ${{ secrets.SLACK_APP_TOKEN }}
-          SLACK_CHANNEL: '#general'
+          SLACK_CHANNEL: "#general"
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: python -m src.crews.daily_crew
 
