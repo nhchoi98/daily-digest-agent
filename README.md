@@ -6,16 +6,16 @@ Slack Bolt SDK (Socket Mode)를 통해 슬래시 커맨드와 인터랙티브 �
 
 ## 기술 스택
 
-| 구분 | 기술 |
-|------|------|
-| 언어 | Python 3.12 |
-| 웹 프레임워크 | FastAPI |
-| AI 에이전트 | crewAI |
-| Slack 연동 | slack-sdk (Webhook), slack-bolt (Socket Mode) |
-| 주식 데이터 | yfinance (Yahoo Finance API) |
-| 데이터 검증 | Pydantic v2, pydantic-settings |
-| 스케줄러 | GitHub Actions |
-| 환경변수 관리 | python-dotenv |
+| 구분          | 기술                                          |
+| ------------- | --------------------------------------------- |
+| 언어          | Python 3.12                                   |
+| 웹 프레임워크 | FastAPI                                       |
+| AI 에이전트   | crewAI                                        |
+| Slack 연동    | slack-sdk (Webhook), slack-bolt (Socket Mode) |
+| 주식 데이터   | yfinance (Yahoo Finance API)                  |
+| 데이터 검증   | Pydantic v2, pydantic-settings                |
+| 스케줄러      | GitHub Actions                                |
+| 환경변수 관리 | python-dotenv                                 |
 
 ## crewAI 아키텍처
 
@@ -38,14 +38,14 @@ Daily Crew (Orchestrator)
 
 ### 에이전트별 역할
 
-| 에이전트 | 역할 | 데이터 소스 | 상태 |
-|---------|------|-----------|------|
-| USDividendAgent | 미국 고배당주 스캔 + 위험도/수익성 분석 | Yahoo Finance | ✅ 완료 |
-| PublisherAgent | 슬랙 다이제스트 발송 | Slack Webhook | ✅ 완료 |
-| USEarningsAgent | 미국 실적발표 일정 수집 | Yahoo Finance | 🔜 예정 |
-| KREarningsAgent | 국내 실적발표 일정 수집 | DART 전자공시 | 🔜 예정 |
-| RateMonitorAgent | 미국/한국 금리 모니터링 | FRED, 한국은행 | 🔜 예정 |
-| DevTrendsAgent | 프로그래밍 트렌드 수집 | GitHub Trending 등 | 🔜 예정 |
+| 에이전트         | 역할                                    | 데이터 소스        | 상태    |
+| ---------------- | --------------------------------------- | ------------------ | ------- |
+| USDividendAgent  | 미국 고배당주 스캔 + 위험도/수익성 분석 | Yahoo Finance      | ✅ 완료 |
+| PublisherAgent   | 슬랙 다이제스트 발송                    | Slack Webhook      | ✅ 완료 |
+| USEarningsAgent  | 미국 실적발표 일정 수집                 | Yahoo Finance      | 🔜 예정 |
+| KREarningsAgent  | 국내 실적발표 일정 수집                 | DART 전자공시      | 🔜 예정 |
+| RateMonitorAgent | 미국/한국 금리 모니터링                 | FRED, 한국은행     | 🔜 예정 |
+| DevTrendsAgent   | 프로그래밍 트렌드 수집                  | GitHub Trending 등 | 🔜 예정 |
 
 ## 디렉토리 구조
 
@@ -115,16 +115,16 @@ cp .env.example .env
 
 ## 환경변수 설정
 
-| 변수명 | 필수 | 설명 |
-|--------|------|------|
-| `SLACK_WEBHOOK_URL` | O | Slack Incoming Webhook URL (`https://hooks.slack.com/services/...`) |
-| `SLACK_BOT_TOKEN` | O | Slack Bot User OAuth Token (`xoxb-`로 시작) |
-| `SLACK_APP_TOKEN` | O | Slack App-Level Token, Socket Mode용 (`xapp-`로 시작) |
-| `SLACK_CHANNEL` | - | 메시지 발송 채널 (기본값: `#daily-digest`) |
-| `ANTHROPIC_API_KEY` | O | Anthropic API Key (crewAI Agent 실행에 필요) |
-| `DART_API_KEY` | - | DART 전자공시 API Key (향후 사용 예정) |
-| `FRED_API_KEY` | - | FRED 미국 경제 데이터 API Key (향후 사용 예정) |
-| `BOK_API_KEY` | - | 한국은행 Open API Key (향후 사용 예정) |
+| 변수명              | 필수 | 설명                                                                |
+| ------------------- | ---- | ------------------------------------------------------------------- |
+| `SLACK_WEBHOOK_URL` | O    | Slack Incoming Webhook URL (`https://hooks.slack.com/services/...`) |
+| `SLACK_BOT_TOKEN`   | O    | Slack Bot User OAuth Token (`xoxb-`로 시작)                         |
+| `SLACK_APP_TOKEN`   | O    | Slack App-Level Token, Socket Mode용 (`xapp-`로 시작)               |
+| `SLACK_CHANNEL`     | -    | 메시지 발송 채널 (기본값: `#daily-digest`)                          |
+| `ANTHROPIC_API_KEY` | O    | Anthropic API Key (crewAI Agent 실행에 필요)                        |
+| `DART_API_KEY`      | -    | DART 전자공시 API Key (향후 사용 예정)                              |
+| `FRED_API_KEY`      | -    | FRED 미국 경제 데이터 API Key (향후 사용 예정)                      |
+| `BOK_API_KEY`       | -    | 한국은행 Open API Key (향후 사용 예정)                              |
 
 ### Slack 앱 설정 방법
 
@@ -139,10 +139,10 @@ cp .env.example .env
 
 Bolt App 실행 후 Slack에서 다음 커맨드를 사용할 수 있습니다:
 
-| 커맨드 | 설명 |
-|--------|------|
-| `/digest now` | 배당락일 다이제스트를 즉시 실행하여 채널에 발송합니다. |
-| `/digest status` | 마지막 실행 시각, 성공 여부, 종목 수를 조회합니다. |
+| 커맨드           | 설명                                                   |
+| ---------------- | ------------------------------------------------------ |
+| `/digest now`    | 배당락일 다이제스트를 즉시 실행하여 채널에 발송합니다. |
+| `/digest status` | 마지막 실행 시각, 성공 여부, 종목 수를 조회합니다.     |
 
 메시지 하단의 **"다시 실행"** 버튼을 클릭하면 `/digest now`와 동일한 동작을 수행합니다.
 
@@ -197,6 +197,7 @@ pytest tests/ -v
 ### 스케줄
 
 매일 **KST 07:00** (UTC 22:00)에 자동 실행됩니다.
+
 - 월~금 (KST) = 일~목 (UTC)만 실행
 - 금/토 (KST)는 다음 거래일이 없으므로 제외
 
@@ -204,12 +205,12 @@ pytest tests/ -v
 
 GitHub 저장소 **Settings > Secrets and variables > Actions**에서 다음 시크릿을 등록합니다:
 
-| Secret 이름 | 설명 |
-|-------------|------|
+| Secret 이름         | 설명                       |
+| ------------------- | -------------------------- |
 | `SLACK_WEBHOOK_URL` | Slack Incoming Webhook URL |
-| `SLACK_BOT_TOKEN` | Slack Bot Token (`xoxb-`) |
-| `SLACK_APP_TOKEN` | Slack App Token (`xapp-`) |
-| `ANTHROPIC_API_KEY` | Anthropic API Key |
+| `SLACK_BOT_TOKEN`   | Slack Bot Token (`xoxb-`)  |
+| `SLACK_APP_TOKEN`   | Slack App Token (`xapp-`)  |
+| `ANTHROPIC_API_KEY` | Anthropic API Key          |
 
 ### 수동 실행
 
@@ -241,22 +242,22 @@ GitHub Actions 로그 링크가 포함되어 있어 즉시 원인을 확인할 �
 
 요일별로 영업일을 고려하여 스캔 범위를 동적으로 조정합니다:
 
-| 요일 | 스캔 범위 | 이유 |
-|------|-----------|------|
-| 월~수 | today ~ today+2 | 2영업일 (주말 미포함) |
-| 목 | today ~ today+3 | 금요일 배당락 종목 포함 |
-| 금 | today ~ today+3 | 월요일 배당락 종목 포함 |
+| 요일  | 스캔 범위       | 이유                    |
+| ----- | --------------- | ----------------------- |
+| 월~수 | today ~ today+3 | 2영업일 (주말 미포함)   |
+| 목    | today ~ today+5 | 금요일 배당락 종목 포함 |
+| 금    | today ~ today+5 | 월요일 배당락 종목 포함 |
 
 핵심 원칙: **"배당락일까지 최소 영업일 2일 이상 남은 종목"을 놓치지 않는 것**
 
 ### 기술적 지표 기준
 
-| 지표 | HIGH (SKIP) | MEDIUM (HOLD) | LOW (BUY) |
-|------|-------------|---------------|-----------|
-| RSI (14일) | > 75 | 65 ~ 75 | < 65 |
-| Stochastic %K/%D | %K > 85 AND %D > 80 | %K > 75 | 정상 범위 |
-| 변동성 (20일, 연환산) | > 50% | 35% ~ 50% | < 35% |
-| 5일 수익률 | > +15% | > +8% | 정상 범위 |
+| 지표                  | HIGH (SKIP)         | MEDIUM (HOLD) | LOW (BUY) |
+| --------------------- | ------------------- | ------------- | --------- |
+| RSI (14일)            | > 75                | 65 ~ 75       | < 65      |
+| Stochastic %K/%D      | %K > 85 AND %D > 80 | %K > 75       | 정상 범위 |
+| 변동성 (20일, 연환산) | > 50%               | 35% ~ 50%     | < 35%     |
+| 5일 수익률            | > +15%              | > +8%         | 정상 범위 |
 
 - **RSI**: Wilder's smoothing 방식 (alpha = 1/14)
 - **Stochastic**: (14, 3, 3) 파라미터. %K = SMA(Raw%K, 3), %D = SMA(%K, 3)
@@ -274,11 +275,11 @@ GitHub Actions 로그 링크가 포함되어 있어 즉시 원인을 확인할 �
 순수익률 = 세후 배당수익률 - 예상 낙폭
 ```
 
-| 순수익률 | 판정 |
-|----------|------|
-| > +0.3% | 세후에도 수익 기대 |
-| -0.3% ~ +0.3% | 손익분기 근처 |
-| < -0.3% | 세후 손실 예상 |
+| 순수익률      | 판정               |
+| ------------- | ------------------ |
+| > +0.3%       | 세후에도 수익 기대 |
+| -0.3% ~ +0.3% | 손익분기 근처      |
+| < -0.3%       | 세후 손실 예상     |
 
 ## 아키텍처 원칙
 
@@ -304,10 +305,10 @@ GitHub Actions 로그 링크가 포함되어 있어 즉시 원인을 확인할 �
 
 ## 향후 로드맵
 
-| Step | 내용 | 상태 |
-|------|------|------|
+| Step   | 내용                                   | 상태    |
+| ------ | -------------------------------------- | ------- |
 | Step 3 | 미국 실적발표 일정 (Earnings Calendar) | 🔜 예정 |
-| Step 4 | 국내 실적발표 일정 (DART 전자공시) | 🔜 예정 |
-| Step 5 | 금리 모니터 (FRED, 한국은행) | 🔜 예정 |
-| Step 6 | 개발 트렌드 (GitHub Trending 등) | 🔜 예정 |
+| Step 4 | 국내 실적발표 일정 (DART 전자공시)     | 🔜 예정 |
+| Step 5 | 금리 모니터 (FRED, 한국은행)           | 🔜 예정 |
+| Step 6 | 개발 트렌드 (GitHub Trending 등)       | 🔜 예정 |
 | Step 8 | Bolt 고도화 (스케줄 변경, 키워드 설정) | 🔜 예정 |
