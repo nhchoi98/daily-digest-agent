@@ -17,6 +17,8 @@ from src.schemas.slack import (
     SlackConfig,
     TextObject,
 )
+from src.schemas.stock import DividendScanResult
+from src.services.debate_service import DebateService
 from src.services.dividend_service import DividendService
 from src.tools.slack_webhook import send_digest
 
@@ -83,6 +85,7 @@ class SlackService:
         self._config = config
         self._last_result: DigestResult | None = None
         self._dividend_service = DividendService()
+        self._debate_service = DebateService()
 
     def run_digest(self) -> DigestResult:
         """다이제스트를 생성하고 Slack으로 발송한다.
@@ -160,25 +163,47 @@ class SlackService:
     def _build_digest_blocks(self) -> tuple[list[DigestBlock], int]:
         """다이제스트 메시지의 Block Kit 블록 목록을 생성한다.
 
-        헤더, 배당락일 섹션, 다시 실행 버튼을 포함한다.
-        배당 스캔이 실패하더라도 나머지 블록은 정상 생성된다.
+        배당 스캔을 1회만 실행하여 배당 섹션과 토론 섹션에서 공유한다.
+        각 섹션 실패 시에도 나머지 블록은 정상 생성된다.
 
         Returns:
             tuple[list[DigestBlock], int]: (발송할 블록 목록, 배당 종목 수).
-                블록은 header, divider, 배당 섹션, divider, actions로 구성.
+                블록: header → divider → 배당 → divider → 토론 → divider → actions.
         """
         today = datetime.now().strftime("%Y-%m-%d")
-        dividend_blocks, stock_count = self._build_dividend_section()
+
+        # 배당 스캔 1회 실행, 결과를 배당 섹션 + 토론 섹션에서 공유
+        scan_result = self._scan_dividends_once()
+        dividend_blocks, stock_count = (
+            self._build_dividend_section_from_result(scan_result)
+        )
+        debate_blocks = self._build_debate_section(scan_result)
 
         blocks = [
             self._build_header_block(today),
             DigestBlock(type="divider"),
             *dividend_blocks,
             DigestBlock(type="divider"),
+            *debate_blocks,
+            DigestBlock(type="divider"),
             self._build_rerun_action_block(),
         ]
 
         return blocks, stock_count
+
+    def _scan_dividends_once(self) -> DividendScanResult | None:
+        """배당 스캔을 1회 실행하고 결과를 반환한다.
+
+        스캔 실패 시 None을 반환하여 전체 파이프라인을 중단시키지 않는다.
+
+        Returns:
+            DividendScanResult 또는 실패 시 None.
+        """
+        try:
+            return self._dividend_service.scan_dividends()
+        except (ConnectionError, ValueError, TypeError, OSError) as e:
+            logger.error("배당 스캔 실패 (격리 처리): %s", e)
+            return None
 
     def _build_header_block(self, date_str: str) -> DigestBlock:
         """날짜를 포함한 헤더 블록을 생성한다.
@@ -197,26 +222,19 @@ class SlackService:
             ),
         )
 
-    def _build_dividend_section(
+    def _build_dividend_section_from_result(
         self,
+        scan_result: DividendScanResult | None,
     ) -> tuple[list[DigestBlock], int]:
-        """배당락일 섹션 블록을 생성한다.
+        """배당 스캔 결과로부터 배당락일 섹션 블록을 생성한다.
 
-        DividendService를 통해 배당 데이터를 수집하고
-        Slack 포맷으로 변환한다.
-        스캔 실패 시에도 에러 안내 블록을 반환하여
-        전체 다이제스트 발송이 중단되지 않도록 격리한다.
+        Args:
+            scan_result: 배당 스캔 결과. None이면 에러 안내 블록 반환.
 
         Returns:
             tuple[list[DigestBlock], int]: (배당 관련 블록 목록, 종목 수).
         """
-        try:
-            scan_result = self._dividend_service.scan_dividends()
-            blocks = self._dividend_service.format_for_slack(scan_result)
-            return blocks, len(scan_result.stocks)
-        except (ConnectionError, ValueError, TypeError, OSError) as e:
-            # 배당 스캔 실패 시에도 전체 다이제스트 발송은 계속한다
-            logger.error("배당 섹션 생성 실패 (격리 처리): %s", e)
+        if scan_result is None:
             return [
                 DigestBlock(
                     type="section",
@@ -226,6 +244,47 @@ class SlackService:
                     ),
                 ),
             ], 0
+
+        try:
+            blocks = self._dividend_service.format_for_slack(scan_result)
+            return blocks, len(scan_result.stocks)
+        except (ValueError, TypeError) as e:
+            logger.error("배당 섹션 포맷팅 실패 (격리 처리): %s", e)
+            return [
+                DigestBlock(
+                    type="section",
+                    text=TextObject(
+                        type="mrkdwn",
+                        text=":warning: *배당 데이터 포맷팅 실패*\n  일시적 오류가 발생했습니다.",
+                    ),
+                ),
+            ], 0
+
+    def _build_debate_section(
+        self,
+        scan_result: DividendScanResult | None,
+    ) -> list[DigestBlock]:
+        """Bull vs Bear 토론 섹션 블록을 생성한다.
+
+        배당 스캔 결과를 토론 서비스에 전달하여 토론을 실행하고
+        결과를 Slack Block Kit 포맷으로 변환한다.
+        스캔 결과가 없거나 토론 실패 시에도 안내 블록을 반환한다.
+
+        Args:
+            scan_result: 배당 스캔 결과. None이면 빈 안내 블록 반환.
+
+        Returns:
+            토론 관련 Slack Block Kit 블록 리스트.
+        """
+        if scan_result is None or not scan_result.stocks:
+            return self._debate_service.format_for_slack(None)
+
+        try:
+            debate_result = self._debate_service.run_debate(scan_result)
+            return self._debate_service.format_for_slack(debate_result)
+        except (ValueError, RuntimeError, ConnectionError, OSError) as e:
+            logger.error("토론 섹션 생성 실패 (격리 처리): %s", e)
+            return self._debate_service.format_for_slack(None)
 
     def _build_rerun_action_block(self) -> DigestBlock:
         """'다시 실행' 인터랙티브 버튼 블록을 생성한다.

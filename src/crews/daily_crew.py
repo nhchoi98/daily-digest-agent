@@ -30,18 +30,34 @@ def get_crew_agents(config: SlackConfig) -> dict[str, Any]:
             키: "us_dividend", "publisher".
             LLM 설정이 없으면 빈 딕셔너리.
     """
+    agents: dict[str, Any] = {}
+
     try:
         from src.agents.publisher import create_publisher_agent
         from src.agents.us_dividend import create_us_dividend_agent
 
-        return {
-            "us_dividend": create_us_dividend_agent(),
-            "publisher": create_publisher_agent(config),
-        }
+        agents["us_dividend"] = create_us_dividend_agent()
+        agents["publisher"] = create_publisher_agent(config)
     except (ImportError, ValueError) as e:
-        # crewAI Agent 생성에 LLM 키가 필요하나 설정되지 않은 경우
         logger.warning("crewAI Agent 생성 스킵 (LLM 미설정): %s", e)
-        return {}
+
+    # Bull vs Bear 토론 Agent (OpenAI 미설정 시 graceful skip)
+    try:
+        from src.agents.debate import (
+            create_bear_agent,
+            create_bull_agent,
+            create_judge_agent,
+        )
+
+        agents["bull"] = create_bull_agent()
+        agents["bear"] = create_bear_agent()
+        agents["judge"] = create_judge_agent()
+    except (ImportError, ValueError) as e:
+        logger.warning(
+            "토론 Agent 생성 스킵 (OpenAI 미설정): %s", e
+        )
+
+    return agents
 
 
 def run_daily_digest(config: SlackConfig) -> None:
