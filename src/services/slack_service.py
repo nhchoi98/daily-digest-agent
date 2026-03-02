@@ -17,9 +17,11 @@ from src.schemas.slack import (
     SlackConfig,
     TextObject,
 )
+from src.schemas.earnings import EarningsScanResult
 from src.schemas.stock import DividendScanResult
 from src.services.debate_service import DebateService
 from src.services.dividend_service import DividendService
+from src.services.earnings_service import EarningsService
 from src.tools.slack_webhook import send_digest
 
 logger = logging.getLogger(__name__)
@@ -74,6 +76,7 @@ class SlackService:
         _config: Slack 연동 설정.
         _last_result: 마지막 실행 결과 (없으면 None).
         _dividend_service: 배당 데이터 수집 서비스.
+        _earnings_service: 실적발표 일정 수집 서비스.
     """
 
     def __init__(self, config: SlackConfig) -> None:
@@ -85,6 +88,7 @@ class SlackService:
         self._config = config
         self._last_result: DigestResult | None = None
         self._dividend_service = DividendService()
+        self._earnings_service = EarningsService()
         self._debate_service = DebateService()
 
     def run_digest(self) -> DigestResult:
@@ -164,11 +168,13 @@ class SlackService:
         """다이제스트 메시지의 Block Kit 블록 목록을 생성한다.
 
         배당 스캔을 1회만 실행하여 배당 섹션과 토론 섹션에서 공유한다.
+        실적발표 일정도 별도로 스캔하여 포함한다.
         각 섹션 실패 시에도 나머지 블록은 정상 생성된다.
 
         Returns:
             tuple[list[DigestBlock], int]: (발송할 블록 목록, 배당 종목 수).
-                블록: header → divider → 배당 → divider → 토론 → divider → actions.
+                블록: header → divider → 배당 → divider → 실적발표
+                → divider → 토론 → divider → actions.
         """
         today = datetime.now().strftime("%Y-%m-%d")
 
@@ -177,12 +183,15 @@ class SlackService:
         dividend_blocks, stock_count = (
             self._build_dividend_section_from_result(scan_result)
         )
+        earnings_blocks = self._build_earnings_section()
         debate_blocks = self._build_debate_section(scan_result)
 
         blocks = [
             self._build_header_block(today),
             DigestBlock(type="divider"),
             *dividend_blocks,
+            DigestBlock(type="divider"),
+            *earnings_blocks,
             DigestBlock(type="divider"),
             *debate_blocks,
             DigestBlock(type="divider"),
@@ -259,6 +268,31 @@ class SlackService:
                     ),
                 ),
             ], 0
+
+    def _build_earnings_section(self) -> list[DigestBlock]:
+        """실적발표 일정 섹션 블록을 생성한다.
+
+        EarningsService를 통해 실적발표 일정을 스캔하고
+        결과를 Slack Block Kit 포맷으로 변환한다.
+        스캔 실패 시에도 에러 안내 블록을 반환하여 전체 파이프라인을 중단시키지 않는다.
+
+        Returns:
+            실적발표 관련 Slack Block Kit 블록 리스트.
+        """
+        try:
+            earnings_result = self._earnings_service.scan_earnings()
+            return self._earnings_service.format_for_slack(earnings_result)
+        except (ConnectionError, ValueError, TypeError, OSError) as e:
+            logger.error("실적발표 섹션 생성 실패 (격리 처리): %s", e)
+            return [
+                DigestBlock(
+                    type="section",
+                    text=TextObject(
+                        type="mrkdwn",
+                        text=":warning: *실적발표 데이터 수집 실패*\n  일시적 오류가 발생했습니다.",
+                    ),
+                ),
+            ]
 
     def _build_debate_section(
         self,

@@ -1,7 +1,8 @@
-"""Yahoo Finance API를 통한 배당 데이터 수집 모듈.
+"""Yahoo Finance API를 통한 배당·실적발표 데이터 수집 모듈.
 
 yfinance 라이브러리를 사용하여 미국 주식의 배당락일, 배당수익률,
 시가총액 등 원시 데이터를 수집한다.
+실적발표(Earnings Calendar) 일정 및 EPS 추정치 수집도 담당한다.
 기술적 지표(RSI, Stochastic, 변동성) 계산 기능도 제공한다.
 비즈니스 로직(필터링, 정렬, 판단) 없이 순수 API 호출 + 계산만 담당한다.
 """
@@ -363,8 +364,323 @@ def _calculate_avg_volume(volume: Any) -> float | None:
     return float(avg)
 
 
+# --- Earnings Calendar (실적발표 일정) ---
+
+# S&P 100 구성종목 (~102개)
+# 왜 S&P 100인가: 대형주 전체를 커버하면서도 API 호출 수가 합리적인 수준.
+# 실적 시즌에 시장 영향이 큰 종목들을 빠짐없이 포착한다.
+EARNINGS_TICKERS: list[str] = [
+    "AAPL", "ABBV", "ABT", "ACN", "ADBE", "AIG", "AMD", "AMGN", "AMZN", "AVGO",
+    "AXP", "BA", "BAC", "BK", "BKNG", "BLK", "BMY", "BRK-B", "C", "CAT",
+    "CHTR", "CL", "CMCSA", "COF", "COP", "COST", "CRM", "CSCO", "CVS", "CVX",
+    "DE", "DHR", "DIS", "DOW", "DUK", "EMR", "EXC", "F", "FDX", "GD",
+    "GE", "GILD", "GM", "GOOG", "GOOGL", "GS", "HD", "HON", "IBM", "INTC",
+    "INTU", "JNJ", "JPM", "KHC", "KO", "LIN", "LLY", "LMT", "LOW", "MA",
+    "MCD", "MDLZ", "MDT", "MET", "META", "MMM", "MO", "MRK", "MS", "MSFT",
+    "NEE", "NFLX", "NKE", "NVDA", "ORCL", "PEP", "PFE", "PG", "PM", "PYPL",
+    "QCOM", "RTX", "SBUX", "SCHW", "SO", "SPG", "T", "TGT", "TMO", "TMUS",
+    "TSLA", "TXN", "UNH", "UNP", "UPS", "USB", "V", "VZ", "WBA", "WFC",
+    "WMT", "XOM",
+]
+
+# 실적발표 스캔 기본 범위 (일)
+_DEFAULT_EARNINGS_DAYS_AHEAD = 14
+
+
+def get_upcoming_earnings(
+    start_date: date | None = None,
+    end_date: date | None = None,
+) -> list[dict[str, Any]]:
+    """yfinance로 실적발표 일정이 임박한 종목의 원시 데이터를 수집한다.
+
+    EARNINGS_TICKERS 목록의 각 종목에 대해 yfinance API를 호출하여
+    실적발표 일정 관련 정보를 수집한다. 필터링 없이 원시 데이터만 반환한다.
+
+    Args:
+        start_date: 스캔 시작일 (포함). None이면 오늘 날짜를 사용한다.
+        end_date: 스캔 종료일 (포함). None이면 start_date + 14일.
+
+    Returns:
+        실적발표 정보 dict 리스트. 각 dict에는 ticker, company_name,
+        earnings_date, earnings_timing, eps_estimate, revenue_estimate,
+        market_cap, current_price, sector, last_eps_actual,
+        last_eps_estimate, last_surprise_pct, yahoo_finance_url 키가 포함된다.
+        API 호출 실패한 종목은 제외된다.
+    """
+    results: list[dict[str, Any]] = []
+    if start_date is None:
+        start_date = date.today()
+    if end_date is None:
+        end_date = start_date + timedelta(days=_DEFAULT_EARNINGS_DAYS_AHEAD)
+
+    logger.info(
+        "실적발표 스캔 시작: %s ~ %s (%d개 종목)",
+        start_date, end_date, len(EARNINGS_TICKERS),
+    )
+
+    for ticker in EARNINGS_TICKERS:
+        stock_data = _fetch_ticker_earnings_info(ticker, start_date, end_date)
+        if stock_data is not None:
+            results.append(stock_data)
+
+    logger.info("실적발표 스캔 완료: %d개 종목 수집", len(results))
+    return results
+
+
+def _fetch_ticker_earnings_info(
+    ticker: str, start_date: date, end_date: date
+) -> dict[str, Any] | None:
+    """단일 종목의 실적발표 정보를 yfinance에서 조회한다.
+
+    calendar 속성을 우선 사용하고, get_earnings_dates()는 fallback으로
+    직전 서프라이즈 데이터에만 활용한다.
+
+    Args:
+        ticker: 종목 심볼 (예: "AAPL", "MSFT").
+        start_date: 스캔 시작일 (포함).
+        end_date: 스캔 종료일 (포함).
+
+    Returns:
+        실적발표 정보 dict 또는 None. 실적발표일이 범위 밖이거나
+        데이터가 없으면 None을 반환한다.
+
+    Note:
+        내부에서 모든 예외를 catch하여 None을 반환하므로
+        호출자에게 예외가 전파되지 않는다.
+    """
+    try:
+        ticker_obj = yf.Ticker(ticker)
+        cal = ticker_obj.calendar
+
+        # calendar가 없거나 빈 경우 스킵
+        if cal is None or (hasattr(cal, "empty") and cal.empty):
+            return None
+        # dict가 아닌 경우 (DataFrame 등) dict로 변환 시도
+        if not isinstance(cal, dict):
+            return None
+
+        # Earnings Date 추출
+        earnings_date_raw = cal.get("Earnings Date")
+        if earnings_date_raw is None:
+            return None
+
+        # Earnings Date는 리스트로 반환될 수 있다 (시작~끝 범위)
+        # 첫 번째 값을 사용한다
+        if isinstance(earnings_date_raw, list):
+            if not earnings_date_raw:
+                return None
+            earnings_date_val = earnings_date_raw[0]
+        else:
+            earnings_date_val = earnings_date_raw
+
+        # Timestamp → date 변환
+        earnings_date = _parse_earnings_date(earnings_date_val)
+        if earnings_date is None:
+            return None
+
+        # 스캔 범위 밖이면 건너뛴다
+        if not (start_date <= earnings_date <= end_date):
+            return None
+
+        info = ticker_obj.info
+
+        # EPS/Revenue 추정치 추출
+        eps_estimate = cal.get("EPS Estimate")
+        revenue_estimate = cal.get("Revenue Estimate")
+
+        # 발표 시점(BMO/AMC) 판단: calendar에 시간 정보가 있으면 활용
+        earnings_timing = _determine_earnings_timing(earnings_date_raw)
+
+        # 직전 분기 서프라이즈 조회
+        surprise_data = _fetch_last_earnings_surprise(ticker_obj)
+
+        return {
+            "ticker": ticker,
+            "company_name": info.get("shortName", ticker),
+            "earnings_date": earnings_date.isoformat(),
+            "earnings_timing": earnings_timing,
+            "eps_estimate": eps_estimate,
+            "revenue_estimate": revenue_estimate,
+            "market_cap": info.get("marketCap", 0),
+            "current_price": info.get("currentPrice")
+            or info.get("regularMarketPrice", 0.0),
+            "sector": info.get("sector"),
+            "last_eps_actual": surprise_data.get("last_eps_actual"),
+            "last_eps_estimate": surprise_data.get("last_eps_estimate"),
+            "last_surprise_pct": surprise_data.get("last_surprise_pct"),
+            "yahoo_finance_url": _YAHOO_FINANCE_URL_TEMPLATE.format(
+                ticker=ticker
+            ),
+        }
+    except (KeyError, TypeError, ValueError, OSError, AttributeError) as e:
+        logger.warning("종목 %s 실적발표 데이터 수집 실패: %s", ticker, e)
+        return None
+
+
+def _parse_earnings_date(date_val: Any) -> date | None:
+    """다양한 형태의 실적발표일 값을 date 객체로 변환한다.
+
+    yfinance calendar의 Earnings Date는 Timestamp, datetime, date,
+    문자열 등 다양한 형태로 반환될 수 있으므로 통합 파서를 사용한다.
+
+    Args:
+        date_val: 실적발표일 원시 값.
+
+    Returns:
+        date 객체 또는 None (파싱 불가 시).
+    """
+    if date_val is None:
+        return None
+
+    # pandas Timestamp
+    if hasattr(date_val, "date"):
+        return date_val.date()
+
+    # datetime 객체
+    if isinstance(date_val, datetime):
+        return date_val.date()
+
+    # date 객체
+    if isinstance(date_val, date):
+        return date_val
+
+    # 문자열 (ISO format)
+    if isinstance(date_val, str):
+        try:
+            return date.fromisoformat(date_val)
+        except ValueError:
+            return None
+
+    # Unix timestamp (초)
+    if isinstance(date_val, (int, float)):
+        try:
+            return datetime.fromtimestamp(
+                date_val, tz=timezone.utc
+            ).date()
+        except (ValueError, OverflowError, OSError):
+            return None
+
+    return None
+
+
+def _determine_earnings_timing(
+    earnings_date_raw: Any,
+) -> str | None:
+    """실적발표 시점(BMO/AMC)을 판단한다.
+
+    yfinance calendar의 Earnings Date가 리스트(범위)로 제공될 때,
+    두 날짜의 차이로 BMO/AMC를 추정한다.
+    단일 값이면 TAS(Time Not Supplied)로 판단한다.
+
+    Args:
+        earnings_date_raw: calendar의 Earnings Date 원시 값.
+
+    Returns:
+        "BMO", "AMC", "TAS", 또는 None.
+    """
+    # 리스트가 아니면 시점 정보 없음
+    if not isinstance(earnings_date_raw, list):
+        return "TAS"
+
+    # 리스트가 2개면 시작~끝 범위 → 같은 날이면 시점 확인 불가
+    if len(earnings_date_raw) < 2:
+        return "TAS"
+
+    # 두 날짜가 같은 날이면 시점 확인 불가
+    first = _parse_earnings_date(earnings_date_raw[0])
+    second = _parse_earnings_date(earnings_date_raw[1])
+    if first is None or second is None or first == second:
+        return "TAS"
+
+    # 두 날짜가 다르면 범위 제공 → 시점 불확실
+    return "TAS"
+
+
+def _fetch_last_earnings_surprise(
+    ticker_obj: yf.Ticker,
+) -> dict[str, Any]:
+    """직전 분기 EPS 서프라이즈 데이터를 가져온다.
+
+    get_earnings_dates()에서 가장 최근 과거 데이터를 추출하여
+    실제 EPS, 추정 EPS, 서프라이즈 %를 반환한다.
+
+    Args:
+        ticker_obj: yfinance Ticker 인스턴스.
+
+    Returns:
+        dict: last_eps_actual, last_eps_estimate, last_surprise_pct 키를 포함.
+            데이터가 없으면 모든 값이 None인 dict.
+    """
+    empty_result: dict[str, Any] = {
+        "last_eps_actual": None,
+        "last_eps_estimate": None,
+        "last_surprise_pct": None,
+    }
+    try:
+        earnings_dates = ticker_obj.get_earnings_dates(limit=4)
+        if earnings_dates is None or earnings_dates.empty:
+            return empty_result
+
+        today = date.today()
+
+        # 과거 날짜만 필터링하여 가장 최근 데이터 추출
+        for idx in earnings_dates.index:
+            row_date = _parse_earnings_date(idx)
+            if row_date is None or row_date >= today:
+                continue
+
+            row = earnings_dates.loc[idx]
+            actual = row.get("Reported EPS")
+            estimate = row.get("EPS Estimate")
+
+            # NaN 체크
+            eps_actual = None
+            eps_estimate = None
+            if actual is not None and not (
+                isinstance(actual, float) and math.isnan(actual)
+            ):
+                eps_actual = float(actual)
+            if estimate is not None and not (
+                isinstance(estimate, float) and math.isnan(estimate)
+            ):
+                eps_estimate = float(estimate)
+
+            # 서프라이즈 % 계산
+            surprise_pct = _calculate_surprise_pct(eps_actual, eps_estimate)
+
+            return {
+                "last_eps_actual": eps_actual,
+                "last_eps_estimate": eps_estimate,
+                "last_surprise_pct": surprise_pct,
+            }
+
+        return empty_result
+    except (KeyError, TypeError, ValueError, OSError, AttributeError) as e:
+        logger.debug("종목 서프라이즈 조회 실패 (무시): %s", e)
+        return empty_result
+
+
+def _calculate_surprise_pct(
+    actual: float | None, estimate: float | None
+) -> float | None:
+    """EPS 서프라이즈 %를 계산한다.
+
+    surprise_pct = (actual - estimate) / |estimate| × 100
+
+    Args:
+        actual: 실제 EPS.
+        estimate: 추정 EPS.
+
+    Returns:
+        서프라이즈 % 또는 None (계산 불가 시).
+    """
+    if actual is None or estimate is None or estimate == 0:
+        return None
+    return round(((actual - estimate) / abs(estimate)) * 100, 2)
+
+
 if __name__ == "__main__":
-    """배당락일 원시 데이터 + 기술적 지표를 수집하여 출력한다."""
+    """배당락일 원시 데이터 + 기술적 지표 + 실적발표 일정을 수집하여 출력한다."""
     import json
 
     from dotenv import load_dotenv
@@ -400,3 +716,16 @@ if __name__ == "__main__":
         )
         for stock in results_30[:5]:
             print(json.dumps(stock, indent=2, ensure_ascii=False))
+
+    # 실적발표 일정 스캔
+    print("\n=== 실적발표 일정 (14일) ===")
+    end_14d = today + timedelta(days=14)
+    earnings_results = get_upcoming_earnings(
+        start_date=today, end_date=end_14d,
+    )
+    if earnings_results:
+        print(f"실적발표 예정 종목: {len(earnings_results)}개")
+        for stock in earnings_results[:10]:
+            print(json.dumps(stock, indent=2, ensure_ascii=False))
+    else:
+        print("14일 이내 실적발표 예정 종목이 없습니다.")

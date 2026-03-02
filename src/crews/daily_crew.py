@@ -35,8 +35,10 @@ def get_crew_agents(config: SlackConfig) -> dict[str, Any]:
     try:
         from src.agents.publisher import create_publisher_agent
         from src.agents.us_dividend import create_us_dividend_agent
+        from src.agents.us_earnings import create_us_earnings_agent
 
         agents["us_dividend"] = create_us_dividend_agent()
+        agents["us_earnings"] = create_us_earnings_agent()
         agents["publisher"] = create_publisher_agent(config)
     except (ImportError, ValueError) as e:
         logger.warning("crewAI Agent 생성 스킵 (LLM 미설정): %s", e)

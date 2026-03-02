@@ -102,60 +102,60 @@ class TestCalculateScanRange:
     """DividendService.calculate_scan_range() 테스트."""
 
     def test_monday_range(self) -> None:
-        """월요일: today + 2일 (수요일까지)."""
+        """월요일: today + 4일 (금요일까지)."""
         service = DividendService()
         start, end = service.calculate_scan_range(date(2026, 2, 16))
         assert start == date(2026, 2, 16)
-        assert end == date(2026, 2, 18)
-        assert (end - start).days == 2
+        assert end == date(2026, 2, 20)
+        assert (end - start).days == 4
 
     def test_tuesday_range(self) -> None:
-        """화요일: today + 2일 (목요일까지)."""
+        """화요일: today + 4일 (토요일까지)."""
         service = DividendService()
         start, end = service.calculate_scan_range(date(2026, 2, 17))
         assert start == date(2026, 2, 17)
-        assert end == date(2026, 2, 19)
-        assert (end - start).days == 2
+        assert end == date(2026, 2, 21)
+        assert (end - start).days == 4
 
     def test_wednesday_range(self) -> None:
-        """수요일: today + 2일 (금요일까지)."""
+        """수요일: today + 4일 (일요일까지)."""
         service = DividendService()
         start, end = service.calculate_scan_range(date(2026, 2, 18))
         assert start == date(2026, 2, 18)
-        assert end == date(2026, 2, 20)
-        assert (end - start).days == 2
+        assert end == date(2026, 2, 22)
+        assert (end - start).days == 4
 
-    def test_thursday_range_includes_friday(self) -> None:
-        """목요일: today + 3일 (일요일까지, 금요일 배당락 포함)."""
+    def test_thursday_range_includes_weekend(self) -> None:
+        """목요일: today + 5일 (화요일까지, 주말 포함)."""
         service = DividendService()
         start, end = service.calculate_scan_range(date(2026, 2, 19))
         assert start == date(2026, 2, 19)
-        assert end == date(2026, 2, 22)
-        assert (end - start).days == 3
+        assert end == date(2026, 2, 24)
+        assert (end - start).days == 5
 
-    def test_friday_range_includes_monday(self) -> None:
-        """금요일: today + 3일 (월요일까지, 월요일 배당락 포함)."""
+    def test_friday_range_includes_week(self) -> None:
+        """금요일: today + 5일 (수요일까지, 주말 포함)."""
         service = DividendService()
         start, end = service.calculate_scan_range(date(2026, 2, 20))
         assert start == date(2026, 2, 20)
-        assert end == date(2026, 2, 23)
-        assert (end - start).days == 3
+        assert end == date(2026, 2, 25)
+        assert (end - start).days == 5
 
     def test_saturday_range(self) -> None:
-        """토요일: today + 4일 (수요일까지)."""
+        """토요일: today + 6일 (금요일까지)."""
         service = DividendService()
         start, end = service.calculate_scan_range(date(2026, 2, 21))
         assert start == date(2026, 2, 21)
-        assert end == date(2026, 2, 25)
-        assert (end - start).days == 4
+        assert end == date(2026, 2, 27)
+        assert (end - start).days == 6
 
     def test_sunday_range(self) -> None:
-        """일요일: today + 3일 (수요일까지)."""
+        """일요일: today + 5일 (금요일까지)."""
         service = DividendService()
         start, end = service.calculate_scan_range(date(2026, 2, 22))
         assert start == date(2026, 2, 22)
-        assert end == date(2026, 2, 25)
-        assert (end - start).days == 3
+        assert end == date(2026, 2, 27)
+        assert (end - start).days == 5
 
 
 class TestScanDividends:

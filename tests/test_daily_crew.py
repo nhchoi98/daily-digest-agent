@@ -56,22 +56,27 @@ class TestGetCrewAgents:
         assert agents == {}
 
     @patch("src.agents.publisher.create_publisher_agent")
+    @patch("src.agents.us_earnings.create_us_earnings_agent")
     @patch("src.agents.us_dividend.create_us_dividend_agent")
     def test_returns_agents_when_llm_available(
         self,
         mock_us_div: MagicMock,
+        mock_us_earn: MagicMock,
         mock_publisher: MagicMock,
     ) -> None:
         """LLM 설정이 있을 때 Agent 딕셔너리를 반환한다."""
         mock_us_div.return_value = MagicMock(role="Scanner")
+        mock_us_earn.return_value = MagicMock(role="Earnings Scanner")
         mock_publisher.return_value = MagicMock(role="Publisher")
 
         config = _make_config()
         agents = get_crew_agents(config)
 
         assert "us_dividend" in agents
+        assert "us_earnings" in agents
         assert "publisher" in agents
         mock_us_div.assert_called_once()
+        mock_us_earn.assert_called_once()
         mock_publisher.assert_called_once_with(config)
 
 
