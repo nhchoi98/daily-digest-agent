@@ -59,6 +59,16 @@ def get_crew_agents(config: SlackConfig) -> dict[str, Any]:
             "토론 Agent 생성 스킵 (OpenAI 미설정): %s", e
         )
 
+    # 금리 모니터링 Agent (FRED/BOK API 키 미설정 시 graceful skip)
+    try:
+        from src.agents.rate_monitor import create_rate_monitor_agent
+
+        agents["rate_monitor"] = create_rate_monitor_agent()
+    except (ImportError, ValueError) as e:
+        logger.warning(
+            "금리 모니터 Agent 생성 스킵 (API 키 미설정): %s", e
+        )
+
     return agents
 
 

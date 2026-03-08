@@ -22,6 +22,7 @@ from src.schemas.stock import DividendScanResult
 from src.services.debate_service import DebateService
 from src.services.dividend_service import DividendService
 from src.services.earnings_service import EarningsService
+from src.services.rate_service import RateService
 from src.tools.slack_webhook import send_digest
 
 logger = logging.getLogger(__name__)
@@ -90,6 +91,7 @@ class SlackService:
         self._dividend_service = DividendService()
         self._earnings_service = EarningsService()
         self._debate_service = DebateService()
+        self._rate_service = RateService()
 
     def run_digest(self) -> DigestResult:
         """다이제스트를 생성하고 Slack으로 발송한다.
@@ -174,7 +176,7 @@ class SlackService:
         Returns:
             tuple[list[DigestBlock], int]: (발송할 블록 목록, 배당 종목 수).
                 블록: header → divider → 배당 → divider → 실적발표
-                → divider → 토론 → divider → actions.
+                → divider → 금리 → divider → 토론 → divider → actions.
         """
         today = datetime.now().strftime("%Y-%m-%d")
 
@@ -184,6 +186,7 @@ class SlackService:
             self._build_dividend_section_from_result(scan_result)
         )
         earnings_blocks = self._build_earnings_section()
+        rate_blocks = self._build_rate_section()
         debate_blocks = self._build_debate_section(scan_result)
 
         blocks = [
@@ -192,6 +195,8 @@ class SlackService:
             *dividend_blocks,
             DigestBlock(type="divider"),
             *earnings_blocks,
+            DigestBlock(type="divider"),
+            *rate_blocks,
             DigestBlock(type="divider"),
             *debate_blocks,
             DigestBlock(type="divider"),
@@ -290,6 +295,34 @@ class SlackService:
                     text=TextObject(
                         type="mrkdwn",
                         text=":warning: *실적발표 데이터 수집 실패*\n  일시적 오류가 발생했습니다.",
+                    ),
+                ),
+            ]
+
+    def _build_rate_section(self) -> list[DigestBlock]:
+        """금리 모니터링 섹션 블록을 생성한다.
+
+        FRED/BOK API에서 금리 데이터를 수집하고
+        Slack Block Kit 포맷으로 변환한다.
+        실패 시에도 안내 블록을 반환하여 전체 파이프라인을 중단시키지 않는다.
+
+        Returns:
+            금리 관련 Slack Block Kit 블록 리스트.
+        """
+        try:
+            rate_result = self._rate_service.monitor_rates()
+            return self._rate_service.format_for_slack(rate_result)
+        except (ValueError, ConnectionError, TypeError, OSError) as e:
+            logger.error("금리 섹션 생성 실패 (격리 처리): %s", e)
+            return [
+                DigestBlock(
+                    type="section",
+                    text=TextObject(
+                        type="mrkdwn",
+                        text=(
+                            ":bank: *금리 모니터*\n"
+                            "  금리 데이터 수집에 실패했습니다."
+                        ),
                     ),
                 ),
             ]
